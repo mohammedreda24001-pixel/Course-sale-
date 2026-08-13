@@ -593,15 +593,6 @@ export default function AddOrderPage() {
     }
   };
 
-  const cleanPhoneStrict = (numStr: string): string => {
-    if (!numStr) return '';
-    const digits = numStr.replace(/\D/g, '');
-    if (digits.length >= 9) {
-      return '07' + digits.slice(-9);
-    }
-    return '';
-  };
-
   const extractPhonesFromText = (text: string): string[] => {
     const arabicToWestern = (str: string) => {
       return str.replace(/[\u0660-\u0669]/g, (d) => (d.charCodeAt(0) - 1632).toString())
@@ -613,12 +604,12 @@ export default function AddOrderPage() {
     for (const part of parts) {
       const matches = part.match(/\+?[\d\s-]{9,16}/g) || [];
       for (const m of matches) {
-        const digits = m.replace(/\D/g, '');
-        if (digits.length >= 9) {
-          const formatted = '07' + digits.slice(-9);
-          if (!cleanPhones.includes(formatted)) {
-            cleanPhones.push(formatted);
-          }
+        const compact = m.replace(/[\s\-().]/g, '');
+        let formatted = compact;
+        if (formatted.startsWith('+964')) formatted = '0' + formatted.slice(4);
+        else if (formatted.startsWith('964')) formatted = '0' + formatted.slice(3);
+        if (/^07\d{9}$/.test(formatted) && !cleanPhones.includes(formatted)) {
+          cleanPhones.push(formatted);
         }
       }
     }

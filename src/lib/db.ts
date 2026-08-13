@@ -149,101 +149,58 @@ export const db = {
     return data;
   },
 
-  async createOrder(
-    studentName: string,
-    phone1: string,
-    phone2: string,
-    province: string,
-    address: string,
-    landmark: string,
-    totalPrice: number,
-    createdBy: { id: string; username: string },
-    piecesCount: number,
-    hasReturn: string,
-    goodsType: string,
-    returnDescription: string,
-    receiptNumber: string,
-    notes: string,
-    manualCode?: string,
-    manualSerial?: string,
-    courseTypeId?: number,
-    internalNotes?: string,
-    telegramUsername?: string,
-    statusId?: number,
-    basePrice?: number,
-    deliveryFee?: number
-  ): Promise<Order> {
-    // First, try to find an available code for this course type
-    let codeValue = manualCode || 'PENDING';
-    let serialNumber = manualSerial || 'PENDING';
-
-    if (!manualCode) {
-      const { data: availableCode } = await supabaseAdmin
-        .from('codes')
-        .select('*')
-        .eq('status', 'available')
-        .eq('isDisabled', false)
-        .eq('courseTypeId', courseTypeId || 1)
-        .limit(1)
-        .single();
-
-      if (availableCode) {
-        codeValue = availableCode.codeValue;
-        serialNumber = availableCode.serialNumber;
-
-        // Mark the code as used
-        await supabaseAdmin
-          .from('codes')
-          .update({
-            status: 'used',
-            orderId: null, // Will be set after order creation
-            assignedAt: new Date().toISOString()
-          })
-          .eq('id', availableCode.id);
-      }
-    }
-
-    const { data, error } = await supabaseAdmin
-      .from('orders')
-      .insert([{
-        studentName,
-        phone1,
-        phone2,
-        province,
-        address,
-        landmark,
-        totalPrice,
-        basePrice: basePrice || 250,
-        deliveryFee: deliveryFee || 0,
-        StudentVaultCode_ID: codeValue,
-        StudentVaultCode_Serial: serialNumber,
-        createdById: createdBy.id,
-        createdByUsername: createdBy.username,
-        piecesCount: piecesCount || 1,
-        hasReturn: hasReturn || 'لا',
-        goodsType: goodsType || 'كورس تعليمي',
-        returnDescription: returnDescription || '',
-        receiptNumber: receiptNumber || '',
-        notes: notes || '',
-        courseTypeId: courseTypeId || 1,
-        internalNotes: internalNotes || '',
-        telegramUsername: telegramUsername || '',
-        statusId: statusId || 1
-      }])
-      .select()
-      .single();
+  async createOrder(input: {
+    studentName: string;
+    phone1: string;
+    phone2: string;
+    province: string;
+    address: string;
+    landmark: string;
+    createdBy: { id: string; username: string };
+    piecesCount: number;
+    hasReturn: string;
+    goodsType: string;
+    returnDescription: string;
+    receiptNumber?: string;
+    notes: string;
+    manualCode?: string;
+    manualSerial?: string;
+    courseTypeId: number;
+    internalNotes: string;
+    telegramUsername: string;
+    statusId: number;
+    basePrice: number;
+    deliveryFee: number;
+  }): Promise<Order> {
+    const { data, error } = await supabaseAdmin.rpc('create_order_atomic', {
+      p_student_name: input.studentName,
+      p_phone1: input.phone1,
+      p_phone2: input.phone2,
+      p_province: input.province,
+      p_address: input.address,
+      p_landmark: input.landmark,
+      p_created_by_id: input.createdBy.id,
+      p_created_by_username: input.createdBy.username,
+      p_pieces_count: input.piecesCount,
+      p_has_return: input.hasReturn,
+      p_goods_type: input.goodsType,
+      p_return_description: input.returnDescription,
+      p_receipt_number: input.receiptNumber?.trim() || null,
+      p_notes: input.notes,
+      p_manual_code: input.manualCode?.trim() || null,
+      p_manual_serial: input.manualSerial?.trim() || null,
+      p_course_type_id: input.courseTypeId,
+      p_internal_notes: input.internalNotes,
+      p_telegram_username: input.telegramUsername,
+      p_status_id: input.statusId,
+      p_base_price: input.basePrice,
+      p_delivery_fee: input.deliveryFee
+    });
 
     if (error) throw error;
-
-    // If we used a code, update it with the order ID
-    if (!manualCode && codeValue !== 'PENDING') {
-      await supabaseAdmin
-        .from('codes')
-        .update({ orderId: data.id })
-        .eq('codeValue', codeValue);
-    }
-
-    return data;
+    const order = Array.isArray(data) ? data[0] : data;
+    if (!order) throw new Error('فشل إنشاء الطلب.');
+    return order as Order;
   },
 
   async updateOrder(id: number, updates: Partial<Order>): Promise<Order> {
@@ -271,34 +228,14 @@ export const db = {
   },
 
   async deleteOrder(id: number): Promise<boolean> {
-    // Get the order to free up the code
-    const { data: order } = await supabaseAdmin
-      .from('orders')
-      .select('StudentVaultCode_ID')
-      .eq('id', id)
-      .single();
-
-    // Delete the order
-    const { error } = await supabaseAdmin
+    const { data, error } = await supabaseAdmin
       .from('orders')
       .delete()
-      .eq('id', id);
+      .eq('id', id)
+      .select('id');
 
-    if (error) throw false;
-
-    // Free up the code if it was assigned
-    if (order && order.StudentVaultCode_ID && order.StudentVaultCode_ID !== 'PENDING') {
-      await supabaseAdmin
-        .from('codes')
-        .update({
-          status: 'available',
-          orderId: null,
-          assignedAt: null
-        })
-        .eq('codeValue', order.StudentVaultCode_ID);
-    }
-
-    return true;
+    if (error) throw error;
+    return Boolean(data && data.length > 0);
   },
 
   // Codes
@@ -315,40 +252,6 @@ export const db = {
 
     if (error) throw error;
     return data || [];
-  },
-
-  async createCode(code: Omit<Code, 'id' | 'createdAt'>): Promise<Code> {
-    const id = crypto.randomUUID();
-    const { data, error } = await supabaseAdmin
-      .from('codes')
-      .insert([{ ...code, id }])
-      .select()
-      .single();
-
-    if (error) throw error;
-    return data;
-  },
-
-  async assignCodeToOrder(codeId: string, orderId: number): Promise<void> {
-    const { error } = await supabaseAdmin
-      .from('codes')
-      .update({
-        status: 'used',
-        orderId,
-        assignedAt: new Date().toISOString()
-      })
-      .eq('id', codeId);
-
-    if (error) throw error;
-  },
-
-  async toggleCodeDisabled(codeId: string, isDisabled: boolean): Promise<void> {
-    const { error } = await supabaseAdmin
-      .from('codes')
-      .update({ isDisabled })
-      .eq('id', codeId);
-
-    if (error) throw error;
   },
 
   // Course Types
@@ -437,19 +340,9 @@ export const db = {
 
   // Next Receipt Number
   async getNextReceiptNumber(): Promise<string> {
-    const { data, error } = await supabaseAdmin
-      .from('orders')
-      .select('receiptNumber')
-      .not('receiptNumber', 'is', null)
-      .order('receiptNumber', { ascending: false })
-      .limit(1);
-
-    if (error || !data || data.length === 0) {
-      return '1001';
-    }
-
-    const lastNumber = parseInt(data[0].receiptNumber);
-    return String(lastNumber + 1);
+    const { data, error } = await supabaseAdmin.rpc('preview_next_receipt_number');
+    if (error) throw error;
+    return String(data);
   },
 
   // Get orders by date range for statistics

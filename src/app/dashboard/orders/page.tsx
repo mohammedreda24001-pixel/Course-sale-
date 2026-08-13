@@ -114,13 +114,16 @@ function mapProvinceToShippingCode(prov: string): string {
 }
 
 function normalizePhone(phone: string): string {
-  const clean = phone ? phone.trim() : '';
-  if (!clean) return '';
-  const digits = clean.replace(/\D/g, '');
-  if (digits.length >= 9) {
-    return '07' + digits.slice(-9);
-  }
-  return clean;
+  const western = String(phone || '')
+    .replace(/[٠-٩]/g, d => String(d.charCodeAt(0) - 1632))
+    .replace(/[۰-۹]/g, d => String(d.charCodeAt(0) - 1776))
+    .trim();
+  if (!western) return '';
+  const compact = western.replace(/[\s\-().]/g, '');
+  let normalized = compact;
+  if (normalized.startsWith('+964')) normalized = '0' + normalized.slice(4);
+  else if (normalized.startsWith('964')) normalized = '0' + normalized.slice(3);
+  return /^07\d{9}$/.test(normalized) ? normalized : western;
 }
 
 function normalizeTelegramUsername(username: string): string {
@@ -754,10 +757,20 @@ export default function OrdersHistoryPage() {
     if (!selectedOrder) return;
     setError('');
     try {
-      const updates = { ...editFormData };
-      if (updates.telegramUsername !== undefined) {
-        updates.telegramUsername = updates.telegramUsername.trim();
-      }
+      const updates = {
+        studentName: editFormData.studentName,
+        phone1: editFormData.phone1,
+        phone2: editFormData.phone2,
+        province: editFormData.province,
+        address: editFormData.address,
+        landmark: editFormData.landmark,
+        telegramUsername: editFormData.telegramUsername?.trim(),
+        basePrice: editFormData.basePrice,
+        deliveryFee: editFormData.deliveryFee,
+        statusId: editFormData.statusId,
+        notes: editFormData.notes,
+        internalNotes: editFormData.internalNotes
+      };
 
       const res = await fetch('/api/orders', {
         method: 'PATCH',
@@ -1295,20 +1308,6 @@ export default function OrdersHistoryPage() {
                     />
                   </div>
 
-                  {/* Course Type */}
-                  <div className="p-3 bg-zinc-950/40 border border-zinc-800/60 rounded space-y-1">
-                    <span className="text-[10px] text-zinc-500 block">نوع الدورة</span>
-                    <select
-                      value={editFormData.courseTypeId || 1}
-                      onChange={(e) => setEditFormData(prev => ({ ...prev, courseTypeId: Number(e.target.value) }))}
-                      className="w-full px-3 py-1.5 swiss-input text-xs font-semibold bg-zinc-950 text-zinc-200 border border-zinc-800 rounded outline-none focus:border-swiss-lavender cursor-pointer"
-                    >
-                      {courseTypes.map(c => (
-                        <option key={c.id} value={c.id}>{c.name}</option>
-                      ))}
-                    </select>
-                  </div>
-
                   {/* Province */}
                   <div className="p-3 bg-zinc-950/40 border border-zinc-800/60 rounded space-y-1">
                     <span className="text-[10px] text-zinc-500 block">المحافظة</span>
@@ -1390,30 +1389,6 @@ export default function OrdersHistoryPage() {
                           totalPrice: (prev.basePrice || 0) + df
                         }));
                       }}
-                      className="w-full px-3 py-1.5 swiss-input text-xs font-semibold bg-zinc-950 text-zinc-200 border border-zinc-800 rounded outline-none focus:border-swiss-lavender text-left font-mono"
-                      dir="ltr"
-                    />
-                  </div>
-
-                  {/* Student Activation Code ID */}
-                  <div className="p-3 bg-zinc-950/40 border border-zinc-800/60 rounded space-y-1">
-                    <span className="text-[10px] text-zinc-500 block">كود تفعيل دورة الطالب</span>
-                    <input
-                      type="text"
-                      value={editFormData.StudentVaultCode_ID || ''}
-                      onChange={(e) => setEditFormData(prev => ({ ...prev, StudentVaultCode_ID: e.target.value }))}
-                      className="w-full px-3 py-1.5 swiss-input text-xs font-semibold bg-zinc-950 text-zinc-200 border border-zinc-800 rounded outline-none focus:border-swiss-lavender text-left font-mono"
-                      dir="ltr"
-                    />
-                  </div>
-
-                  {/* Student Activation Code Serial */}
-                  <div className="p-3 bg-zinc-950/40 border border-zinc-800/60 rounded space-y-1">
-                    <span className="text-[10px] text-zinc-500 block">الرقم التسلسلي للكود (Serial)</span>
-                    <input
-                      type="text"
-                      value={editFormData.StudentVaultCode_Serial || ''}
-                      onChange={(e) => setEditFormData(prev => ({ ...prev, StudentVaultCode_Serial: e.target.value }))}
                       className="w-full px-3 py-1.5 swiss-input text-xs font-semibold bg-zinc-950 text-zinc-200 border border-zinc-800 rounded outline-none focus:border-swiss-lavender text-left font-mono"
                       dir="ltr"
                     />

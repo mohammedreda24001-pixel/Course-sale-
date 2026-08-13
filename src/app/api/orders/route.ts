@@ -77,30 +77,29 @@ export async function POST(req: NextRequest) {
     const cleanTelegramUsername = telegramUsername ? telegramUsername.trim() : '';
 
     // Attempt to create the order and link a code
-    const order = await db.createOrder(
+    const order = await db.createOrder({
       studentName,
       phone1,
-      phone2 || '',
+      phone2: phone2 || '',
       province,
       address,
-      landmark || '',
-      totalPrice || 250, // Default price in thousands (e.g. 250 representing 250,000)
-      { id: user.id, username: user.username },
-      piecesCount || 1,
-      hasReturn || 'لا',
-      goodsType || 'كورس تعليمي',
-      returnDescription || '',
-      receiptNumber || '',
-      notes || '',
-      manualCode || undefined,
-      manualSerial || undefined,
-      selectedCourseId,
-      internalNotes || '',
-      cleanTelegramUsername,
-      Number(statusId) || 1,
-      basePrice !== undefined ? Number(basePrice) : undefined,
-      deliveryFee !== undefined ? Number(deliveryFee) : undefined
-    );
+      landmark: landmark || '',
+      createdBy: { id: user.id, username: user.username },
+      piecesCount: piecesCount || 1,
+      hasReturn: hasReturn || 'لا',
+      goodsType: goodsType || 'كورس تعليمي',
+      returnDescription: returnDescription || '',
+      receiptNumber: receiptNumber || undefined,
+      notes: notes || '',
+      manualCode: manualCode || undefined,
+      manualSerial: manualSerial || undefined,
+      courseTypeId: selectedCourseId,
+      internalNotes: internalNotes || '',
+      telegramUsername: cleanTelegramUsername,
+      statusId: Number(statusId) || 1,
+      basePrice: basePrice !== undefined ? Number(basePrice) : 250,
+      deliveryFee: deliveryFee !== undefined ? Number(deliveryFee) : 0
+    });
 
     // Fetch template settings and course types to compile the response message
     const [settings, courseTypes] = await Promise.all([
