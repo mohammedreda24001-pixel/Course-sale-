@@ -1,0 +1,113 @@
+@import "tailwindcss";
+
+@font-face {
+  font-family: 'Thmanyah';
+  src: url('https://framerusercontent.com/assets/x6EBzvXf1Fi35XhsRoHxePDVo.woff2') format('woff2');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Thmanyah';
+  src: url('https://framerusercontent.com/assets/LZvgFRUsP7pGWYj3tKxMUrKuhSY.woff2') format('woff2');
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+@theme {
+  --font-sans: 'Thmanyah', system-ui, sans-serif;
+  --color-swiss-bg: #09090b;
+  --color-swiss-card: #18181b;
+  --color-swiss-border: #27272a;
+  --color-swiss-lavender: #b09ff6;
+  --color-swiss-lavender-hover: #c3b5fd;
+  --color-swiss-text-muted: #a1a1aa;
+}
+
+body {
+  font-family: var(--font-sans);
+  background-color: #09090b;
+  color: #f4f4f5;
+}
+
+/* Minimalist scrollbars */
+::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+::-webkit-scrollbar-track {
+  background: #09090b;
+}
+::-webkit-scrollbar-thumb {
+  background: #27272a;
+  border-radius: 9999px;
+}
+
+/* Swiss Minimalism helper classes */
+.swiss-panel {
+  background-color: #121214;
+  border: 1px solid #1e1e24;
+}
+
+.swiss-card {
+  background-color: #16161a;
+  border: 1px solid #22222a;
+}
+
+.swiss-input {
+  background-color: #0c0c0e;
+  border: 1px solid #27272a;
+  color: #f4f4f5;
+  border-radius: 6px;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.swiss-input:focus {
+  outline: none;
+  border-color: #b09ff6;
+  box-shadow: 0 0 0 1px #b09ff6;
+}
+
+.swiss-btn-lavender {
+  background-color: #b09ff6;
+  color: #09090b;
+  font-weight: 700;
+  border-radius: 6px;
+  transition: background-color 0.15s ease, transform 0.1s ease;
+}
+
+.swiss-btn-lavender:hover:not(:disabled) {
+  background-color: #c3b5fd;
+}
+
+.swiss-btn-lavender:active:not(:disabled) {
+  transform: scale(0.98);
+}
+
+.swiss-btn-neutral {
+  background-color: #18181b;
+  color: #f4f4f5;
+  border: 1px solid #27272a;
+  font-weight: 600;
+  border-radius: 6px;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+
+.swiss-btn-neutral:hover:not(:disabled) {
+  background-color: #27272a;
+  border-color: #3f3f46;
+}
+
+.swiss-btn-danger {
+  background-color: #ef4444;
+  color: #ffffff;
+  font-weight: 600;
+  border-radius: 6px;
+  transition: background-color 0.15s ease;
+}
+
+.swiss-btn-danger:hover:not(:disabled) {
+  background-color: #f87171;
+}

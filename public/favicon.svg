@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="100%" height="100%">
+  <!-- Shadow offset -->
+  <rect x="32" y="32" width="448" height="448" fill="#000000" rx="20"/>
+  <!-- Base box -->
+  <rect x="16" y="16" width="448" height="448" fill="#00ffcc" stroke="#000000" stroke-width="24" rx="20"/>
+  <!-- Inner offset block -->
+  <rect x="48" y="48" width="384" height="384" fill="#090a0f" stroke="#000000" stroke-width="16" rx="12"/>
+  <!-- Shield Emblem -->
+  <path d="M256 120 L370 170 V290 C370 365 320 410 256 430 C192 410 142 365 142 290 V170 Z" fill="#00f0ff" stroke="#000000" stroke-width="16" stroke-linejoin="round"/>
+  <!-- Check Mark inside shield -->
+  <path d="M200 270 L240 310 L315 220" fill="none" stroke="#000000" stroke-width="24" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>
