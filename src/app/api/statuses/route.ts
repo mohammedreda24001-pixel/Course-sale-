@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase/admin';
 import { getSessionUser } from '@/lib/auth';
 
-// GET /api/statuses - List all order statuses
+// GET /api/statuses - List all order statuses (returns array directly)
 export async function GET(req: NextRequest) {
   try {
     const user = getSessionUser(req);
@@ -17,7 +17,8 @@ export async function GET(req: NextRequest) {
 
     if (error) throw error;
     
-    return NextResponse.json({ statuses: data || [] });
+    // Return array directly (not wrapped in object)
+    return NextResponse.json(data || []);
   } catch (error: any) {
     console.error('Get Statuses Error:', error);
     return NextResponse.json(

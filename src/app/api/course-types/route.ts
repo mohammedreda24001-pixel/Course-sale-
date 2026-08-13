@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { getSessionUser } from '@/lib/auth';
 
-// GET /api/course-types - List all course types
+// GET /api/course-types - List all course types (returns array directly)
 export async function GET(req: NextRequest) {
   try {
     const user = getSessionUser(req);
@@ -12,7 +12,8 @@ export async function GET(req: NextRequest) {
 
     const courseTypes = await db.getCourseTypes();
     
-    return NextResponse.json({ courseTypes });
+    // Return array directly (not wrapped in object)
+    return NextResponse.json(courseTypes);
   } catch (error: any) {
     console.error('Get Course Types Error:', error);
     return NextResponse.json(

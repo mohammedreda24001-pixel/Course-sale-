@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { getSessionUser } from '@/lib/auth';
 
-// GET /api/settings - Get system settings
+// GET /api/settings - Get system settings (returns settings object directly)
 export async function GET(req: NextRequest) {
   try {
     const user = getSessionUser(req);
@@ -12,7 +12,8 @@ export async function GET(req: NextRequest) {
 
     const settings = await db.getSettings();
     
-    return NextResponse.json({ settings });
+    // Return settings directly (not wrapped in object)
+    return NextResponse.json(settings);
   } catch (error: any) {
     console.error('Get Settings Error:', error);
     return NextResponse.json(
@@ -38,12 +39,12 @@ export async function PUT(req: NextRequest) {
       defaultOrderNote
     });
 
-    // Return updated settings
+    // Return updated settings directly
     const updatedSettings = await db.getSettings();
     
     return NextResponse.json({
       success: true,
-      settings: updatedSettings,
+      ...updatedSettings,
       message: 'تم تحديث الإعدادات بنجاح'
     });
   } catch (error: any) {
