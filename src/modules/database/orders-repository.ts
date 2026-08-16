@@ -116,7 +116,7 @@ export const ordersRepository = {
     const { data: codeData, error: codeError } = await supabaseAdmin
       .from('codes')
       .select('*')
-      .eq('status', 'متاح')
+      .eq('status', 'available')
       .eq('courseTypeId', orderData.courseTypeId || 1)
       .limit(1);
 
@@ -130,7 +130,7 @@ export const ordersRepository = {
     const { error: updateCodeError } = await supabaseAdmin
       .from('codes')
       .update({ 
-        status: 'مباع',
+        status: 'used',
         orderId: 'pending-insert'
       })
       .eq('id', selectedCode.id);
@@ -150,8 +150,8 @@ export const ordersRepository = {
       totalPrice: orderData.totalPrice || (orderData.basePrice || 250) + (orderData.deliveryFee || 0),
       basePrice: orderData.basePrice || 250,
       deliveryFee: orderData.deliveryFee || 0,
-      StudentVaultCode_ID: selectedCode.code,
-      StudentVaultCode_Serial: selectedCode.serial || '',
+      StudentVaultCode_ID: selectedCode.codeValue,
+      StudentVaultCode_Serial: selectedCode.serialNumber || '',
       createdById: orderData.createdById,
       createdByUsername: orderData.createdByUsername,
       piecesCount: orderData.piecesCount || 1,
@@ -178,7 +178,7 @@ export const ordersRepository = {
       // Rollback: release the code
       await supabaseAdmin
         .from('codes')
-        .update({ status: 'متاح', orderId: null })
+        .update({ status: 'available', orderId: null })
         .eq('id', selectedCode.id);
       throw new Error(`فشل إنشاء الطلب: ${orderError.message}`);
     }
