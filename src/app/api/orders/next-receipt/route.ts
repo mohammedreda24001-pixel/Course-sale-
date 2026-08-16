@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { db } from '@/lib/db';
+import { ordersRepository } from '@/modules/database/orders-repository';
 import { getSessionUser } from '@/lib/auth';
 
 export async function GET(req: NextRequest) {
@@ -9,7 +9,7 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: 'غير مصرح. يرجى تسجيل الدخول.' }, { status: 401 });
     }
 
-    const nextReceiptNumber = await db.getNextReceiptNumber();
+    const nextReceiptNumber = await ordersRepository.getNextReceiptNumber();
     return NextResponse.json({ nextReceiptNumber });
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 });

@@ -21,6 +21,8 @@ import {
   Bookmark
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
+import { getLegacyProvinceCode, IRAQ_PROVINCE_NAMES } from '@/modules/shipping/iraq-provinces';
+import { prepareOrderForShipping } from '@/modules/shipping/prepare-order';
 
 interface StatsColumn {
   field: string;
@@ -54,8 +56,10 @@ interface Order {
   phone1: string;
   phone2: string;
   province: string;
+  region?: string;
   address: string;
   landmark: string;
+  packageSize?: string;
   totalPrice: number;
   basePrice: number;
   deliveryFee: number;
@@ -89,29 +93,6 @@ interface User {
 }
 
 const ITEMS_PER_PAGE = 10;
-
-function mapProvinceToShippingCode(prov: string): string {
-  const p = prov ? prov.trim() : '';
-  if (p.includes('بغداد')) return 'BGD';
-  if (p.includes('ناصرية') || p.includes('ذي قار') || p.includes('الناصرية')) return 'NAS';
-  if (p.includes('ديالى') || p.includes('بعقوبة')) return 'DYL';
-  if (p.includes('كوت') || p.includes('واسط') || p.includes('الكوت')) return 'KOT';
-  if (p.includes('كربلاء')) return 'KRB';
-  if (p.includes('دهوك')) return 'DOH';
-  if (p.includes('بابل') || p.includes('حلة') || p.includes('الحلة')) return 'BBL';
-  if (p.includes('نجف') || p.includes('النجف')) return 'NJF';
-  if (p.includes('بصرة') || p.includes('البصرة')) return 'BAS';
-  if (p.includes('اربيل') || p.includes('أربيل')) return 'ARB';
-  if (p.includes('كركوك')) return 'KRK';
-  if (p.includes('سليمانية') || p.includes('السليمانية')) return 'SMH';
-  if (p.includes('صلاح الدين') || p.includes('تكريت')) return 'SAH';
-  if (p.includes('انبار') || p.includes('الانبار') || p.includes('الرمادي')) return 'ANB';
-  if (p.includes('سماوة') || p.includes('المثنى') || p.includes('السماوة')) return 'SAM';
-  if (p.includes('موصل') || p.includes('الموصل')) return 'MOS';
-  if (p.includes('ديوانية') || p.includes('الديوانية')) return 'DWN';
-  if (p.includes('عمارة') || p.includes('ميسان') || p.includes('العمارة')) return 'AMA';
-  return 'OTHER';
-}
 
 function normalizePhone(phone: string): string {
   const western = String(phone || '')
@@ -231,6 +212,12 @@ export default function OrdersHistoryPage() {
       return;
     }
 
+    const invalidProvinceOrder = exportTargets.find(o => !getLegacyProvinceCode(o.province));
+    if (invalidProvinceOrder) {
+      alert(`لا يمكن تصدير الطلب ${invalidProvinceOrder.receiptNumber || invalidProvinceOrder.id}: المحافظة غير معروفة. صحح المحافظة أولاً.`);
+      return;
+    }
+
     // Fixed 13 columns exactly mirroring the delivery company import layout:
     const headers = [
       'ملاحظات',
@@ -254,7 +241,7 @@ export default function OrdersHistoryPage() {
       o.hasReturn || 'لا',
       normalizePhone(o.phone1), // Normalized phone numbers
       `${o.address}${o.landmark ? ' - دالة: ' + o.landmark : ''}`,
-      mapProvinceToShippingCode(o.province),
+      getLegacyProvinceCode(o.province)!,
       o.studentName,
       (o.totalPrice || 0) * 1000, // Multiplied price
       o.receiptNumber || o.id.toString(),
@@ -762,8 +749,11 @@ export default function OrdersHistoryPage() {
         phone1: editFormData.phone1,
         phone2: editFormData.phone2,
         province: editFormData.province,
+        region: editFormData.region,
         address: editFormData.address,
         landmark: editFormData.landmark,
+        packageSize: editFormData.packageSize,
+        piecesCount: editFormData.piecesCount,
         telegramUsername: editFormData.telegramUsername?.trim(),
         basePrice: editFormData.basePrice,
         deliveryFee: editFormData.deliveryFee,
@@ -1144,7 +1134,7 @@ export default function OrdersHistoryPage() {
                       <td className="py-4 px-4 text-center border-l border-zinc-800/40">
                         <div className="text-zinc-300 font-bold">{order.province}</div>
                         <span className="inline-block mt-1 px-2 py-0.5 text-[9px] bg-zinc-900 border border-zinc-800 text-swiss-lavender font-mono rounded">
-                          {mapProvinceToShippingCode(order.province)}
+                          {getLegacyProvinceCode(order.province) || 'غير معروف'}
                         </span>
                       </td>
                       <td className="py-4 px-4 text-zinc-400 border-l border-zinc-800/40">
@@ -1311,11 +1301,27 @@ export default function OrdersHistoryPage() {
                   {/* Province */}
                   <div className="p-3 bg-zinc-950/40 border border-zinc-800/60 rounded space-y-1">
                     <span className="text-[10px] text-zinc-500 block">المحافظة</span>
-                    <input
-                      type="text"
+                    <select
                       value={editFormData.province || ''}
                       onChange={(e) => setEditFormData(prev => ({ ...prev, province: e.target.value }))}
                       className="w-full px-3 py-1.5 swiss-input text-xs font-semibold bg-zinc-950 text-zinc-200 border border-zinc-800 rounded outline-none focus:border-swiss-lavender"
+                    >
+                      <option value="">اختر المحافظة</option>
+                      {IRAQ_PROVINCE_NAMES.map(province => (
+                        <option key={province} value={province}>{province}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {/* Shipping Region */}
+                  <div className="p-3 bg-zinc-950/40 border border-zinc-800/60 rounded space-y-1">
+                    <span className="text-[10px] text-zinc-500 block">المنطقة للوسيط</span>
+                    <input
+                      type="text"
+                      value={editFormData.region || ''}
+                      onChange={(e) => setEditFormData(prev => ({ ...prev, region: e.target.value }))}
+                      className="w-full px-3 py-1.5 swiss-input text-xs font-semibold bg-zinc-950 text-zinc-200 border border-zinc-800 rounded outline-none focus:border-swiss-lavender"
+                      placeholder="بدون تخمين"
                     />
                   </div>
 
@@ -1391,6 +1397,31 @@ export default function OrdersHistoryPage() {
                       }}
                       className="w-full px-3 py-1.5 swiss-input text-xs font-semibold bg-zinc-950 text-zinc-200 border border-zinc-800 rounded outline-none focus:border-swiss-lavender text-left font-mono"
                       dir="ltr"
+                    />
+                  </div>
+
+                  {/* Pieces Count */}
+                  <div className="p-3 bg-zinc-950/40 border border-zinc-800/60 rounded space-y-1">
+                    <span className="text-[10px] text-zinc-500 block">عدد القطع</span>
+                    <input
+                      type="number"
+                      min="1"
+                      value={editFormData.piecesCount ?? 1}
+                      onChange={(e) => setEditFormData(prev => ({ ...prev, piecesCount: Number(e.target.value) }))}
+                      className="w-full px-3 py-1.5 swiss-input text-xs font-semibold bg-zinc-950 text-zinc-200 border border-zinc-800 rounded outline-none focus:border-swiss-lavender text-left font-mono"
+                      dir="ltr"
+                    />
+                  </div>
+
+                  {/* Package Size */}
+                  <div className="p-3 bg-zinc-950/40 border border-zinc-800/60 rounded space-y-1">
+                    <span className="text-[10px] text-zinc-500 block">حجم الطرد للوسيط</span>
+                    <input
+                      type="text"
+                      value={editFormData.packageSize || ''}
+                      onChange={(e) => setEditFormData(prev => ({ ...prev, packageSize: e.target.value }))}
+                      className="w-full px-3 py-1.5 swiss-input text-xs font-semibold bg-zinc-950 text-zinc-200 border border-zinc-800 rounded outline-none focus:border-swiss-lavender"
+                      placeholder="اتركه فارغاً إذا غير مؤكد"
                     />
                   </div>
 
@@ -1474,6 +1505,12 @@ export default function OrdersHistoryPage() {
                     <span className="text-zinc-200 text-sm font-bold">{selectedOrder.province}</span>
                   </div>
                   <div className="p-3 bg-zinc-950/40 border border-zinc-800/60 rounded">
+                    <span className="text-[10px] text-zinc-500 block mb-1">المنطقة للوسيط</span>
+                    <span className={selectedOrder.region ? 'text-zinc-200 text-sm font-bold' : 'text-amber-400 text-sm font-bold'}>
+                      {selectedOrder.region || 'غير محددة'}
+                    </span>
+                  </div>
+                  <div className="p-3 bg-zinc-950/40 border border-zinc-800/60 rounded">
                     <span className="text-[10px] text-zinc-500 block mb-1">سعر الدورة</span>
                     <span className="text-zinc-200 font-mono text-sm font-bold">{(selectedOrder.basePrice * 1000).toLocaleString()} د.ع</span>
                   </div>
@@ -1501,6 +1538,29 @@ export default function OrdersHistoryPage() {
                     ) : (
                       <span className="text-zinc-500 text-sm">—</span>
                     )}
+                  </div>
+                  <div className="p-3 bg-zinc-950/40 border border-zinc-800/60 rounded">
+                    <span className="text-[10px] text-zinc-500 block mb-1">عدد القطع</span>
+                    <span className="text-zinc-200 text-sm font-bold">{selectedOrder.piecesCount || 1}</span>
+                  </div>
+                  <div className="p-3 bg-zinc-950/40 border border-zinc-800/60 rounded">
+                    <span className="text-[10px] text-zinc-500 block mb-1">حجم الطرد للوسيط</span>
+                    <span className={selectedOrder.packageSize ? 'text-zinc-200 text-sm font-bold' : 'text-amber-400 text-sm font-bold'}>
+                      {selectedOrder.packageSize || 'غير محدد'}
+                    </span>
+                  </div>
+                  <div className="p-3 bg-zinc-950/40 border border-zinc-800/60 rounded">
+                    <span className="text-[10px] text-zinc-500 block mb-1">جاهزية الشحن</span>
+                    {(() => {
+                      const readiness = prepareOrderForShipping(selectedOrder);
+                      return readiness.ready ? (
+                        <span className="text-emerald-400 text-sm font-bold">جاهز للتجهيز للوسيط</span>
+                      ) : (
+                        <span className="text-amber-400 text-xs font-bold" title={readiness.errors.join(' ')}>
+                          بيانات ناقصة — لا يتم الإرسال
+                        </span>
+                      );
+                    })()}
                   </div>
                   <div className="col-span-2 p-3 bg-zinc-950/40 border border-zinc-800/60 rounded">
                     <span className="text-[10px] text-zinc-500 block mb-1">العنوان بالتفصيل</span>

@@ -52,8 +52,10 @@ CREATE TABLE IF NOT EXISTS orders (
     phone1 VARCHAR(50) NOT NULL,
     phone2 VARCHAR(50),
     province VARCHAR(100) NOT NULL,
+    region VARCHAR(256) NOT NULL DEFAULT '',
     address TEXT NOT NULL,
     landmark TEXT NOT NULL,
+    "packageSize" VARCHAR(100) NOT NULL DEFAULT '',
     "totalPrice" NUMERIC NOT NULL,
     "basePrice" NUMERIC DEFAULT 250,
     "deliveryFee" NUMERIC DEFAULT 0,
@@ -125,15 +127,18 @@ VALUES (
 رقم الهاتف:
 رقم هاتف بديل:
 المحافظة:
+المنطقة:
 العنوان:
 أقرب نقطة دالة:
+حجم الطرد:
 معرف التلكرام:
 السعر:',
     'تم تثبيت الطلب ✅
 الاسم: {name}
 📞 {phone1} - {phone2}
 📍 المحافظة  : {province}
-المنطقة : {address}
+المنطقة : {region}
+تفاصيل العنوان : {address}
 نقطة دالة : {landmark}
 تفاصيل الطلب:
 كود الدورة الالكترونية للأستاذ حسن فلاح
@@ -153,6 +158,7 @@ VALUES (
 CREATE INDEX IF NOT EXISTS idx_codes_status ON codes(status);
 CREATE INDEX IF NOT EXISTS idx_codes_course_type ON codes("courseTypeId");
 CREATE INDEX IF NOT EXISTS idx_orders_province ON orders(province);
+CREATE INDEX IF NOT EXISTS idx_orders_region ON orders(region);
 CREATE INDEX IF NOT EXISTS idx_orders_course_type ON orders("courseTypeId");
 CREATE INDEX IF NOT EXISTS idx_orders_status ON orders("statusId");
 CREATE INDEX IF NOT EXISTS idx_users_username ON users(username);
@@ -182,6 +188,15 @@ BEGIN
     IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'orders' AND column_name = 'deliveryFee') THEN
         ALTER TABLE orders ADD COLUMN "deliveryFee" NUMERIC DEFAULT 0;
         UPDATE orders SET "deliveryFee" = 0 WHERE "deliveryFee" IS NULL;
+    END IF;
+
+    -- ADD shipping preparation fields. Existing orders remain valid but are not
+    -- shipping-ready until these values are explicitly completed.
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'orders' AND column_name = 'region') THEN
+        ALTER TABLE orders ADD COLUMN region VARCHAR(256) NOT NULL DEFAULT '';
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'orders' AND column_name = 'packageSize') THEN
+        ALTER TABLE orders ADD COLUMN "packageSize" VARCHAR(100) NOT NULL DEFAULT '';
     END IF;
 
     -- ADD courseTypeId, internalNotes, telegramUsername, statusId, defaultOrderNote

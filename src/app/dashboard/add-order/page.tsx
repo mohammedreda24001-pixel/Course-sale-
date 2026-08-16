@@ -29,14 +29,17 @@ import {
   QrCode,
   Camera
 } from 'lucide-react';
+import { IRAQ_PROVINCE_NAMES, matchProvinceFromExplicitField } from '@/modules/shipping/iraq-provinces';
 
 interface OrderForm {
   studentName: string;
   phone1: string;
   phone2: string;
   province: string;
+  region: string;
   address: string;
   landmark: string;
+  packageSize: string;
   totalPrice: number;
   basePrice: number;
   deliveryFee: number;
@@ -58,8 +61,10 @@ const DEFAULT_FORM: OrderForm = {
   phone1: '',
   phone2: '',
   province: '',
+  region: '',
   address: '',
   landmark: '',
+  packageSize: '',
   totalPrice: 255,
   basePrice: 250,
   deliveryFee: 5,
@@ -76,26 +81,7 @@ const DEFAULT_FORM: OrderForm = {
   statusId: 1,
 };
 
-const PROVINCES_SUGGESTIONS = [
-  'بغداد',
-  'الناصرية ذي قار',
-  'ديالى',
-  'الكوت واسط',
-  'كربلاء',
-  'دهوك',
-  'بابل الحلة',
-  'النجف',
-  'البصرة',
-  'اربيل',
-  'كركوك',
-  'السليمانية',
-  'صلاح الدين',
-  'الانبار',
-  'السماوة المثنى',
-  'الموصل او موصل',
-  'الديوانية',
-  'العمارة ميسان'
-];
+const PROVINCES_SUGGESTIONS = IRAQ_PROVINCE_NAMES;
 
 interface ParserTemplate {
   id: string;
@@ -119,15 +105,17 @@ const DEFAULT_PARSER_TEMPLATES: ParserTemplate[] = [
 رقم الهاتف:
 رقم هاتف بديل:
 المحافظة:
+المنطقة:
 العنوان:
 أقرب نقطة دالة:
+حجم الطرد:
 معرف التلكرام:
 السعر:`,
     studentNameLabels: ['الاسم الرباعي', 'الاسم', 'اسم الطالب', 'اسم المستلم'],
     phone1Labels: ['رقم الهاتف', 'رقم هاتف', 'الهاتف', 'رقم الموبايل', 'الموبايل', 'رقم الهاتف الأول', 'الهاتف الأول'],
     phone2Labels: ['رقم هاتف بديل', 'رقم بديل', 'هاتف بديل', 'الهاتف الثاني', 'رقم آخر', 'رقم البديل'],
     provinceLabels: ['المحافظة', 'محافظة', 'المحافظه'],
-    addressLabels: ['العنوان', 'المنطقة', 'المنطقه', 'تفاصيل العنوان', 'السكن'],
+    addressLabels: ['العنوان', 'تفاصيل العنوان', 'السكن'],
     landmarkLabels: ['أقرب نقطة دالة', 'أقرب نقطة', 'اقرب نقطة دالة', 'أقرب نقطه', 'نقطة دالة', 'نقطه داله', 'نقطة الدالة'],
     totalPriceLabels: ['المبلغ', 'السعر', 'سعر الدورة', 'سعر الدوره', 'قيمة الدورة', 'قيمه الدوره', 'مجموع', 'القيمة', 'القيمه'],
     telegramUsernameLabels: ['معرف التلكرام', 'معرف التليكرام', 'معرف التلي', 'التليكرام', 'التليجرام', 'التلي', 'telegram', 'tele']
@@ -139,8 +127,10 @@ const DEFAULT_PARSER_TEMPLATES: ParserTemplate[] = [
 رقم الموبايل:
 الرقم البديل:
 محافظة الطالب:
+المنطقة:
 العنوان الكامل:
 أقرب دالة:
+حجم الطرد:
 معرف التلي:
 سعر الكورس:`,
     studentNameLabels: ['اسم المستلم', 'المستلم', 'الاسم الكامل', 'اسم الطالب'],
@@ -158,7 +148,9 @@ const DEFAULT_PARSER_TEMPLATES: ParserTemplate[] = [
     requestTemplate: `الاسم:
 الهاتف:
 المحافظة:
+المنطقة:
 العنوان:
+حجم الطرد:
 تلي:`,
     studentNameLabels: ['الاسم'],
     phone1Labels: ['الهاتف', 'رقم'],
@@ -187,6 +179,7 @@ export default function AddOrderPage() {
   const [confirmedMessage, setConfirmedMessage] = useState('');
   const [assignedCode, setAssignedCode] = useState('');
   const [assignedSerial, setAssignedSerial] = useState('');
+  const [shippingPreparationErrors, setShippingPreparationErrors] = useState<string[]>([]);
 
   const [products, setProducts] = useState<{ id: number; name: string }[]>([]);
   const [isAddingProduct, setIsAddingProduct] = useState(false);
@@ -624,34 +617,14 @@ export default function AddOrderPage() {
     };
   };
 
-  const matchProvinceStrict = (text: string): string => {
-    if (!text) return '';
-    if (/بغداد/i.test(text)) return 'بغداد';
-    if (/الناصرية|الناصريه|ذي قار/i.test(text)) return 'الناصرية ذي قار';
-    if (/ديالى|ديالي/i.test(text)) return 'ديالى';
-    if (/الكوت|واسط/i.test(text)) return 'الكوت واسط';
-    if (/كربلاء/i.test(text)) return 'كربلاء';
-    if (/دهوك/i.test(text)) return 'دهوك';
-    if (/بابل|الحلة|الحله/i.test(text)) return 'بابل الحلة';
-    if (/النجف/i.test(text)) return 'النجف';
-    if (/البصرة|البصره/i.test(text)) return 'البصرة';
-    if (/اربيل|أربيل/i.test(text)) return 'اربيل';
-    if (/كركوك/i.test(text)) return 'كركوك';
-    if (/السليمانية|السليمانيه/i.test(text)) return 'السليمانية';
-    if (/صلاح الدين|تكريت/i.test(text)) return 'صلاح الدين';
-    if (/الانبار|الأنبار|الرمادي/i.test(text)) return 'الانبار';
-    if (/السماوة|السماوه|المثنى|المثني/i.test(text)) return 'السماوة المثنى';
-    if (/الموصل|نينوى/i.test(text)) return 'الموصل او موصل';
-    if (/الديوانية|الديوانيه/i.test(text)) return 'الديوانية';
-    if (/العمارة|العماره|ميسان/i.test(text)) return 'العمارة ميسان';
-    return '';
-  };
+
 
   const LABELS_TO_STRIP = [
     'الاسم الرباعي', 'الاسم', 'اسم الطالب', 'الاسم الكامل', 'اسم المستلم', 'المستلم',
     'رقم الهاتف', 'رقم هاتف', 'الهاتف', 'رقم الموبايل', 'الموبايل', 'رقم الهاتف الأول', 'الهاتف الأول',
     'رقم هاتف بديل', 'رقم بديل', 'هاتف بديل', 'الهاتف الثاني', 'رقم آخر', 'رقم البديل',
     'المحافظة', 'محافظة', 'المحافظه',
+    'حجم الطرد', 'حجم الشحنة', 'حجم الشحن', 'package size',
     'العنوان الكامل', 'العنوان', 'تفاصيل العنوان', 'السكن', 'المنطقة', 'المنطقه',
     'أقرب نقطة دالة', 'أقرب نقطة', 'اقرب نقطة دالة', 'أقرب نقطه', 'نقطة دالة', 'نقطه داله', 'نقطة الدالة', 'الدالة', 'أقرب دالة', 'اقرب دالة',
     'سعر الكورس', 'المبلغ مع التوصيل', 'السعر', 'المبلغ', 'سعر الدورة', 'سعر الدوره', 'قيمة الدورة', 'قيمه الدوره',
@@ -674,7 +647,7 @@ export default function AddOrderPage() {
     const findMatch = (labels: string[]) => {
       if (!labels || labels.length === 0) return null;
       const escapedLabels = labels.map(l => l.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&')).join('|');
-      const regex = new RegExp(`(?:${escapedLabels})\\s*[:：-]?\\s*([^\\n]+)`, 'i');
+      const regex = new RegExp(`(?:^|\\n)\\s*(?:${escapedLabels})\\s*[:：-]?\\s*([^\\n]+)`, 'i');
       const match = text.match(regex);
       return match ? match[1].trim() : null;
     };
@@ -695,8 +668,10 @@ export default function AddOrderPage() {
     const phone1Val = findMatch(phone1Labels) || '';
     const phone2Val = findMatch(phone2Labels) || '';
     const provinceValRaw = findMatch(provinceLabels) || '';
+    const regionValRaw = findMatch(['المنطقة', 'المنطقه', 'القضاء', 'الناحية', 'الناحيه', 'region']) || '';
     const addressValRaw = findMatch(addressLabels) || '';
     const landmarkValRaw = findMatch(landmarkLabels) || '';
+    const packageSizeValRaw = findMatch(['حجم الطرد', 'حجم الشحنة', 'حجم الشحن', 'package size']) || '';
     const priceValRaw = findMatch(priceLabels) || '';
     const telegramValRaw = findMatch(telegramLabels) || '';
     const telegramVal = telegramValRaw.trim();
@@ -714,11 +689,10 @@ export default function AddOrderPage() {
       phone2 = globalPhones[1] || '';
     }
 
-    // 2. Province strict matching
-    let province = matchProvinceStrict(provinceValRaw);
-    if (!province) {
-      province = matchProvinceStrict(text);
-    }
+    // 2. Province strict matching. Never infer from arbitrary text/address.
+    const province = matchProvinceFromExplicitField(provinceValRaw);
+    const region = stripLabels(regionValRaw);
+    const packageSize = stripLabels(packageSizeValRaw);
 
     // 3. Price clean
     const cleanPrice = (priceStr: string): number => {
@@ -768,8 +742,10 @@ export default function AddOrderPage() {
       phone1,
       phone2,
       province,
+      region,
       address,
       landmark,
+      packageSize,
       basePrice: finalBasePrice,
       totalPrice: finalBasePrice + formData.deliveryFee,
       telegramUsername: telegramVal
@@ -788,8 +764,13 @@ export default function AddOrderPage() {
     const phone1 = phones.phone1;
     const phone2 = phones.phone2;
 
-    // 2. Province strict matching
-    const province = matchProvinceStrict(cleanText);
+    // 2. Province/region/package size: only explicit labeled fields are trusted.
+    const explicitProvinceMatch = cleanText.match(/(?:^|\n)\s*(?:المحافظة|محافظة|المحافظه)\s*[:：-]\s*([^\n]+)/i);
+    const province = matchProvinceFromExplicitField(explicitProvinceMatch?.[1] || '');
+    const explicitRegionMatch = cleanText.match(/(?:^|\n)\s*(?:المنطقة|المنطقه|القضاء|الناحية|الناحيه|region)\s*[:：-]\s*([^\n]+)/i);
+    const region = stripLabels(explicitRegionMatch?.[1] || '');
+    const explicitPackageSizeMatch = cleanText.match(/(?:^|\n)\s*(?:حجم الطرد|حجم الشحنة|حجم الشحن|package size)\s*[:：-]\s*([^\n]+)/i);
+    const packageSize = stripLabels(explicitPackageSizeMatch?.[1] || '');
 
     // 3. Price extraction
     let basePrice = 250;
@@ -839,6 +820,7 @@ export default function AddOrderPage() {
       if (phone1 && cleanLine.replace(/\D/g, '').includes(phone1.slice(-9))) return false;
       if (phone2 && cleanLine.replace(/\D/g, '').includes(phone2.slice(-9))) return false;
       if (telegramUsername && cleanLine.includes(telegramUsername.replace(/^@/, ''))) return false;
+      if (/^\s*(?:المحافظة|محافظة|المحافظه|المنطقة|المنطقه|القضاء|الناحية|الناحيه|حجم الطرد|حجم الشحنة|حجم الشحن|package size)\s*[:：-]/i.test(line)) return false;
       if (/سعر|المبلغ|توصيل|دينار|د\.ع|\d+\s*(الف|ألف|k)/i.test(line)) return false;
       return true;
     });
@@ -881,8 +863,10 @@ export default function AddOrderPage() {
       phone1,
       phone2,
       province,
+      region,
       address: addressCandidates.join(' - '),
       landmark: landmarkCandidates.join(' - '),
+      packageSize,
       basePrice,
       totalPrice: basePrice + formData.deliveryFee,
       telegramUsername
@@ -910,7 +894,11 @@ export default function AddOrderPage() {
 
         setFormData(prev => ({
           ...prev,
-          ...parsedData
+          ...parsedData,
+          // Ensure province is always a string
+          province: typeof parsedData.province === 'string' 
+            ? parsedData.province 
+            : (parsedData.province?.name || prev.province)
         }));
 
         const textarea = document.getElementById('raw-paste-area');
@@ -1045,11 +1033,12 @@ export default function AddOrderPage() {
       localStorage.setItem('last_goods_type', formData.goodsType);
       localStorage.setItem('last_course_type_id', formData.courseTypeId.toString());
 
+      handleResetForm();
       setConfirmedMessage(data.confirmationMessage);
       setAssignedCode(data.order.StudentVaultCode_ID);
       setAssignedSerial(data.order.StudentVaultCode_Serial);
+      setShippingPreparationErrors(Array.isArray(data.shippingReadiness?.errors) ? data.shippingReadiness.errors : []);
       setShowModal(true);
-      handleResetForm();
     } catch (err: any) {
       setErrorMessage(err.message || 'فشل الاتصال بالخادم');
     } finally {
@@ -1318,6 +1307,27 @@ export default function AddOrderPage() {
                 </div>
               </div>
 
+              {/* Shipping Region */}
+              <div>
+                <label className="block text-xs font-bold text-zinc-300 mb-2">
+                  المنطقة للوسيط
+                </label>
+                <div className="relative">
+                  <div className="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none text-zinc-500 border-l border-zinc-800 bg-zinc-900/40 px-2 rounded-r-md">
+                    <MapPin className="w-4 h-4" />
+                  </div>
+                  <input
+                    type="text"
+                    name="region"
+                    value={formData.region}
+                    onChange={handleFormChange}
+                    className="w-full pr-12 pl-4 py-2.5 swiss-input text-sm font-semibold"
+                    placeholder="اكتب المنطقة كما هي مؤكدة، بدون تخمين"
+                  />
+                </div>
+                <p className="text-[10px] text-zinc-500 mt-1">إذا بقيت فارغة فلن يكون الطلب جاهزاً للإرسال للوسيط.</p>
+              </div>
+
               {/* basePrice */}
               <div>
                 <label className="block text-xs font-bold text-zinc-300 mb-2">
@@ -1428,6 +1438,26 @@ export default function AddOrderPage() {
                     className="w-full pr-12 pl-4 py-2.5 swiss-input text-left font-mono text-sm"
                     min="1"
                     placeholder="1"
+                  />
+                </div>
+              </div>
+
+              {/* Package Size */}
+              <div>
+                <label className="block text-xs font-bold text-zinc-300 mb-2">
+                  حجم الطرد للوسيط
+                </label>
+                <div className="relative">
+                  <div className="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none text-zinc-500 border-l border-zinc-800 bg-zinc-900/40 px-2 rounded-r-md">
+                    <Layers className="w-4 h-4" />
+                  </div>
+                  <input
+                    type="text"
+                    name="packageSize"
+                    value={formData.packageSize}
+                    onChange={handleFormChange}
+                    className="w-full pr-12 pl-4 py-2.5 swiss-input text-sm font-semibold"
+                    placeholder="اتركه فارغاً إذا الحجم غير مؤكد"
                   />
                 </div>
               </div>
@@ -1815,6 +1845,20 @@ export default function AddOrderPage() {
               <h3 className="text-lg font-bold text-white">تم تثبيت الطلب بنجاح!</h3>
               <p className="text-xs text-zinc-400 mt-1">تم حجز الكود المتاح وتوليد رسالة التأكيد للطالب.</p>
             </div>
+
+            {/* Shipping preparation status */}
+            {shippingPreparationErrors.length === 0 ? (
+              <div className="p-3 rounded-lg border border-emerald-500/20 bg-emerald-500/5 text-emerald-400 text-xs font-bold">
+                بيانات الشحن الأساسية مكتملة وجاهزة لمرحلة ربط الوسيط.
+              </div>
+            ) : (
+              <div className="p-3 rounded-lg border border-amber-500/20 bg-amber-500/5 text-amber-300 text-xs font-bold space-y-1">
+                <div>الطلب محفوظ، لكنه غير جاهز للإرسال للوسيط ولا توجد أي قيم افتراضية:</div>
+                {shippingPreparationErrors.map((message, index) => (
+                  <div key={`${message}-${index}`}>• {message}</div>
+                ))}
+              </div>
+            )}
 
             {/* Code Vault Info Grid */}
             <div className="grid grid-cols-2 gap-4 bg-zinc-950/40 p-4 border border-zinc-800 rounded-lg">

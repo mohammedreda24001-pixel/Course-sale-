@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { db } from '@/lib/db';
+import { ordersRepository } from '@/modules/database/orders-repository';
 import { getSessionUser } from '@/lib/auth';
 
 export async function GET(req: NextRequest) {
@@ -17,7 +17,7 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: 'تاريخ البدء وتاريخ الانتهاء مطلوبان.' }, { status: 400 });
     }
 
-    const orders = await db.getOrdersByDateRange(startDate, endDate);
+    const orders = await ordersRepository.getByDateRange(startDate, endDate);
     return NextResponse.json(orders);
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 });

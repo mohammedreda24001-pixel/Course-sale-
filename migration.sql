@@ -67,6 +67,14 @@ BEGIN
         ALTER TABLE orders ADD COLUMN "deliveryFee" NUMERIC DEFAULT 0;
     END IF;
 
+    -- Add shipping-preparation columns to orders (no provider fallback/default mapping)
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'orders' AND column_name = 'region') THEN
+        ALTER TABLE orders ADD COLUMN region VARCHAR(256) NOT NULL DEFAULT '';
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'orders' AND column_name = 'packageSize') THEN
+        ALTER TABLE orders ADD COLUMN "packageSize" VARCHAR(100) NOT NULL DEFAULT '';
+    END IF;
+
     -- Add other columns to orders
     IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'orders' AND column_name = 'courseTypeId') THEN
         ALTER TABLE orders ADD COLUMN "courseTypeId" INT REFERENCES course_types(id) ON DELETE SET NULL;
@@ -123,6 +131,7 @@ UPDATE orders SET "statusId" = 1 WHERE "statusId" IS NULL;
 CREATE INDEX IF NOT EXISTS idx_codes_status ON codes(status);
 CREATE INDEX IF NOT EXISTS idx_codes_course_type ON codes("courseTypeId");
 CREATE INDEX IF NOT EXISTS idx_orders_province ON orders(province);
+CREATE INDEX IF NOT EXISTS idx_orders_region ON orders(region);
 CREATE INDEX IF NOT EXISTS idx_orders_course_type ON orders("courseTypeId");
 CREATE INDEX IF NOT EXISTS idx_orders_status ON orders("statusId");
 CREATE INDEX IF NOT EXISTS idx_users_username ON users(username);

@@ -1,6 +1,20 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { db } from '@/lib/db';
 import { getSessionUser } from '@/lib/auth';
+import { ordersRepository } from '@/modules/database/orders-repository';
+import { orderSupportRepository } from '@/modules/database/order-support-repository';
+import {
+  normalizeCreateOrderInput,
+  normalizeOrderUpdates
+} from '@/modules/orders/normalize-order-input';
+import { prepareOrderForShipping } from '@/modules/shipping/prepare-order';
+
+function parseOrderId(value: unknown): number {
+  const id = Number(value);
+  if (!Number.isInteger(id) || id < 1) {
+    throw new Error('معرف الطلب غير صالح');
+  }
+  return id;
+}
 
 export async function GET(req: NextRequest) {
   try {
@@ -13,16 +27,15 @@ export async function GET(req: NextRequest) {
     const idStr = searchParams.get('id');
     const receiptNumber = searchParams.get('receiptNumber');
 
-    const orders = await db.getOrders();
-
     if (idStr) {
-      const id = parseInt(idStr, 10);
-      const order = orders.find(o => o.id === id);
+      const order = await ordersRepository.getById(parseOrderId(idStr));
       if (!order) {
         return NextResponse.json({ error: 'الطلب غير موجود' }, { status: 404 });
       }
       return NextResponse.json(order);
     }
+
+    const orders = await ordersRepository.list();
 
     if (receiptNumber) {
       const order = orders.find(o => o.receiptNumber === receiptNumber);
@@ -33,8 +46,9 @@ export async function GET(req: NextRequest) {
     }
 
     return NextResponse.json(orders);
-  } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'حدث خطأ أثناء جلب الطلبات';
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }
 
@@ -45,140 +59,98 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'غير مصرح. يرجى تسجيل الدخول.' }, { status: 401 });
     }
 
-    const { 
-      studentName, 
-      phone1, 
-      phone2, 
-      province, 
-      address, 
-      landmark, 
-      totalPrice,
-      piecesCount,
-      hasReturn,
-      goodsType,
-      returnDescription,
-      receiptNumber,
-      notes,
-      manualCode,
-      manualSerial,
-      courseTypeId,
-      internalNotes,
-      telegramUsername,
-      statusId,
-      basePrice,
-      deliveryFee
-    } = await req.json();
+    const body = await req.json() as Record<string, unknown>;
+    const normalized = normalizeCreateOrderInput(body);
+    const { totalPrice: _calculatedTotal, ...orderInput } = normalized;
 
-    if (!studentName || !phone1 || !province || !address) {
-      return NextResponse.json({ error: 'الاسم، رقم الهاتف، المحافظة، والعنوان حقول إجبارية.' }, { status: 400 });
-    }
-
-    const selectedCourseId = Number(courseTypeId) || 1;
-    const cleanTelegramUsername = telegramUsername ? telegramUsername.trim() : '';
-
-    // Attempt to create the order and link a code
-    const order = await db.createOrder({
-      studentName,
-      phone1,
-      phone2: phone2 || '',
-      province,
-      address,
-      landmark: landmark || '',
-      createdBy: { id: user.id, username: user.username },
-      piecesCount: piecesCount || 1,
-      hasReturn: hasReturn || 'لا',
-      goodsType: goodsType || 'كورس تعليمي',
-      returnDescription: returnDescription || '',
-      receiptNumber: receiptNumber || undefined,
-      notes: notes || '',
-      manualCode: manualCode || undefined,
-      manualSerial: manualSerial || undefined,
-      courseTypeId: selectedCourseId,
-      internalNotes: internalNotes || '',
-      telegramUsername: cleanTelegramUsername,
-      statusId: Number(statusId) || 1,
-      basePrice: basePrice !== undefined ? Number(basePrice) : 250,
-      deliveryFee: deliveryFee !== undefined ? Number(deliveryFee) : 0
+    // Core order/code allocation remains inside the existing atomic DB workflow.
+    const order = await ordersRepository.create({
+      ...orderInput,
+      createdById: user.id,
+      createdByUsername: user.username
     });
 
-    // Fetch template settings and course types to compile the response message
     const [settings, courseTypes] = await Promise.all([
-      db.getSettings(),
-      db.getCourseTypes()
+      orderSupportRepository.getSettings(),
+      orderSupportRepository.getCourseTypes()
     ]);
-    
-    const courseObj = courseTypes.find(c => c.id === selectedCourseId);
+
+    const courseObj = courseTypes.find(c => c.id === normalized.courseTypeId);
     const courseName = courseObj ? courseObj.name : '';
 
     let confirmationMessage = settings.confirmationTemplate;
 
-    // Dynamic price calculations in dinars
     const calculatedTotalPriceVal = order.totalPrice * 1000;
-    const calculatedCoursePriceVal = (order.basePrice !== undefined ? order.basePrice : (order.totalPrice - 5)) * 1000;
+    const calculatedCoursePriceVal = (order.basePrice !== undefined
+      ? order.basePrice
+      : (order.totalPrice - (order.deliveryFee ?? 0))) * 1000;
 
     const formattedTotalPrice = calculatedTotalPriceVal.toLocaleString();
     const formattedCoursePrice = calculatedCoursePriceVal.toLocaleString();
+    const formattedDeliveryFee = ((order.deliveryFee ?? 0) * 1000).toLocaleString();
 
-    // String formatting helper to replace placeholders (supports both brackets and double curly braces)
     confirmationMessage = confirmationMessage
-      // Student Name
       .replace(/{name}/g, order.studentName)
       .replace(/{{StudentName}}/g, order.studentName)
       .replace(/{{name}}/g, order.studentName)
-      // Phone 1
       .replace(/{phone1}/g, order.phone1)
       .replace(/{{Phone1}}/g, order.phone1)
       .replace(/{{phone1}}/g, order.phone1)
-      // Phone 2
       .replace(/{phone2}/g, order.phone2 ? `${order.phone2}` : 'لا يوجد')
       .replace(/{{Phone2}}/g, order.phone2 ? `${order.phone2}` : 'لا يوجد')
       .replace(/{{phone2}}/g, order.phone2 ? `${order.phone2}` : 'لا يوجد')
-      // Province
       .replace(/{province}/g, order.province)
       .replace(/{{Province}}/g, order.province)
       .replace(/{{province}}/g, order.province)
-      // Address
+      .replace(/{region}/g, order.region || 'غير محددة')
+      .replace(/{{Region}}/g, order.region || 'غير محددة')
+      .replace(/{{region}}/g, order.region || 'غير محددة')
       .replace(/{address}/g, order.address)
       .replace(/{{Address}}/g, order.address)
       .replace(/{{address}}/g, order.address)
-      // Landmark
       .replace(/{landmark}/g, order.landmark ? `${order.landmark}` : 'لا يوجد')
       .replace(/{{Landmark}}/g, order.landmark ? `${order.landmark}` : 'لا يوجد')
       .replace(/{{landmark}}/g, order.landmark ? `${order.landmark}` : 'لا يوجد')
-      // Code
+      .replace(/{packageSize}/g, order.packageSize || 'غير محدد')
+      .replace(/{{PackageSize}}/g, order.packageSize || 'غير محدد')
+      .replace(/{{packageSize}}/g, order.packageSize || 'غير محدد')
+      .replace(/{piecesCount}/g, String(order.piecesCount ?? 1))
+      .replace(/{{PiecesCount}}/g, String(order.piecesCount ?? 1))
       .replace(/{code}/g, order.StudentVaultCode_ID)
       .replace(/{{Code}}/g, order.StudentVaultCode_ID)
       .replace(/{{code}}/g, order.StudentVaultCode_ID)
       .replace(/{{CourseCode}}/g, order.StudentVaultCode_ID)
-      // Serial
       .replace(/{serial}/g, order.StudentVaultCode_Serial)
       .replace(/{{Serial}}/g, order.StudentVaultCode_Serial)
       .replace(/{{serial}}/g, order.StudentVaultCode_Serial)
       .replace(/{{CourseSerial}}/g, order.StudentVaultCode_Serial)
-      // Course Name
       .replace(/{course}/g, courseName)
       .replace(/{{CourseName}}/g, courseName)
       .replace(/{{course}}/g, courseName)
       .replace(/{{CourseType}}/g, courseName)
-      // Price / Course Price
       .replace(/{price}/g, formattedCoursePrice)
       .replace(/{{Price}}/g, formattedCoursePrice)
       .replace(/{{price}}/g, formattedCoursePrice)
       .replace(/{{CoursePrice}}/g, formattedCoursePrice)
-      // Total Price / Total Amount
+      .replace(/{deliveryFee}/g, formattedDeliveryFee)
+      .replace(/{{DeliveryFee}}/g, formattedDeliveryFee)
       .replace(/{totalPrice}/g, formattedTotalPrice)
       .replace(/{{TotalPrice}}/g, formattedTotalPrice)
       .replace(/{{totalPrice}}/g, formattedTotalPrice)
       .replace(/{{TotalAmount}}/g, formattedTotalPrice);
 
+    const shippingReadiness = prepareOrderForShipping(order);
+
     return NextResponse.json({
       success: true,
       order,
-      confirmationMessage
+      confirmationMessage,
+      shippingReadiness
     });
-  } catch (error: any) {
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'حدث خطأ أثناء حفظ الطلب';
     console.error('Create Order Error:', error);
-    return NextResponse.json({ error: error.message || 'حدث خطأ أثناء حفظ الطلب' }, { status: 400 });
+    return NextResponse.json({ error: message }, { status: 400 });
   }
 }
 
@@ -191,35 +163,20 @@ export async function DELETE(req: NextRequest) {
 
     const { searchParams } = new URL(req.url);
     const idStr = searchParams.get('id');
-
     if (!idStr) {
       return NextResponse.json({ error: 'معرف الطلب مطلوب' }, { status: 400 });
     }
 
-    const id = parseInt(idStr, 10);
-    if (isNaN(id)) {
-      return NextResponse.json({ error: 'معرف الطلب غير صالح' }, { status: 400 });
-    }
-
-    const success = await db.deleteOrder(id);
+    const success = await ordersRepository.remove(parseOrderId(idStr));
     if (!success) {
       return NextResponse.json({ error: 'الطلب غير موجود' }, { status: 404 });
     }
 
     return NextResponse.json({ success: true, message: 'تم حذف الطلب بنجاح وإرجاع الكود للمخزن' });
-  } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'حدث خطأ أثناء حذف الطلب';
+    return NextResponse.json({ error: message }, { status: 500 });
   }
-}
-
-function normalizePhone(phone: string): string {
-  const clean = phone ? phone.trim() : '';
-  if (!clean) return '';
-  const digits = clean.replace(/\D/g, '');
-  if (digits.length >= 9) {
-    return '07' + digits.slice(-9);
-  }
-  return clean;
 }
 
 export async function PATCH(req: NextRequest) {
@@ -229,54 +186,40 @@ export async function PATCH(req: NextRequest) {
       return NextResponse.json({ error: 'غير مصرح. يرجى تسجيل الدخول.' }, { status: 401 });
     }
 
-    const body = await req.json();
-    const { id, statusId, updates } = body;
-    
-    if (!id) {
-      return NextResponse.json({ error: 'معرف الطلب مطلوب' }, { status: 400 });
+    const body = await req.json() as Record<string, unknown>;
+    const id = parseOrderId(body.id);
+
+    if (body.updates && typeof body.updates === 'object' && !Array.isArray(body.updates)) {
+      const currentOrder = await ordersRepository.getById(id);
+      if (!currentOrder) {
+        return NextResponse.json({ error: 'الطلب غير موجود' }, { status: 404 });
+      }
+
+      const updates = normalizeOrderUpdates(body.updates as Record<string, unknown>, currentOrder);
+      if (Object.keys(updates).length === 0) {
+        return NextResponse.json({ error: 'لا توجد بيانات صالحة للتحديث' }, { status: 400 });
+      }
+
+      const updatedOrder = await ordersRepository.update(id, updates);
+      return NextResponse.json({
+        success: true,
+        order: updatedOrder,
+        shippingReadiness: prepareOrderForShipping(updatedOrder)
+      });
     }
 
-    if (updates) {
-      const finalUpdates: any = { ...updates };
-      if (finalUpdates.phone1) finalUpdates.phone1 = normalizePhone(finalUpdates.phone1);
-      if (finalUpdates.phone2) finalUpdates.phone2 = normalizePhone(finalUpdates.phone2);
-      if (finalUpdates.telegramUsername !== undefined) {
-        finalUpdates.telegramUsername = finalUpdates.telegramUsername.trim();
+    if (body.statusId !== undefined) {
+      const statusId = Number(body.statusId);
+      if (!Number.isInteger(statusId) || statusId < 1) {
+        return NextResponse.json({ error: 'حالة الطلب غير صالحة' }, { status: 400 });
       }
-      if (finalUpdates.courseTypeId !== undefined) {
-        finalUpdates.courseTypeId = Number(finalUpdates.courseTypeId);
-      }
-      if (finalUpdates.basePrice !== undefined) {
-        finalUpdates.basePrice = Number(finalUpdates.basePrice);
-      }
-      if (finalUpdates.deliveryFee !== undefined) {
-        finalUpdates.deliveryFee = Number(finalUpdates.deliveryFee);
-      }
-      
-      // Auto-recalculate totalPrice if basePrice or deliveryFee changes
-      if (finalUpdates.basePrice !== undefined || finalUpdates.deliveryFee !== undefined) {
-        const orders = await db.getOrders();
-        const currentOrder = orders.find(o => o.id === Number(id));
-        const bp = finalUpdates.basePrice !== undefined ? finalUpdates.basePrice : (currentOrder ? currentOrder.basePrice : 250);
-        const df = finalUpdates.deliveryFee !== undefined ? finalUpdates.deliveryFee : (currentOrder ? currentOrder.deliveryFee : 0);
-        finalUpdates.totalPrice = bp + df;
-      } else if (finalUpdates.totalPrice !== undefined) {
-        finalUpdates.totalPrice = Number(finalUpdates.totalPrice);
-      }
-
-      if (finalUpdates.statusId !== undefined) {
-        finalUpdates.statusId = Number(finalUpdates.statusId);
-      }
-
-      const updatedOrder = await db.updateOrder(Number(id), finalUpdates);
+      const updatedOrder = await ordersRepository.updateStatus(id, statusId);
       return NextResponse.json({ success: true, order: updatedOrder });
-    } else if (statusId !== undefined) {
-      const updatedOrder = await db.updateOrderStatus(Number(id), Number(statusId));
-      return NextResponse.json({ success: true, order: updatedOrder });
-    } else {
-      return NextResponse.json({ error: 'بيانات التحديث غير صالحة' }, { status: 400 });
     }
-  } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 400 });
+
+    return NextResponse.json({ error: 'بيانات التحديث غير صالحة' }, { status: 400 });
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'حدث خطأ أثناء تحديث الطلب';
+    return NextResponse.json({ error: message }, { status: 400 });
   }
 }

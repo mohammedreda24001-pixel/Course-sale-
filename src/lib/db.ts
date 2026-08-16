@@ -15,8 +15,10 @@ export interface Order {
   phone1: string;
   phone2?: string;
   province: string;
+  region?: string;
   address: string;
   landmark: string;
+  packageSize?: string;
   totalPrice: number;
   basePrice?: number;
   deliveryFee?: number;
@@ -154,8 +156,10 @@ export const db = {
     phone1: string;
     phone2: string;
     province: string;
+    region: string;
     address: string;
     landmark: string;
+    packageSize: string;
     createdBy: { id: string; username: string };
     piecesCount: number;
     hasReturn: string;
@@ -200,7 +204,29 @@ export const db = {
     if (error) throw error;
     const order = Array.isArray(data) ? data[0] : data;
     if (!order) throw new Error('فشل إنشاء الطلب.');
-    return order as Order;
+
+    // Keep the existing atomic code-allocation RPC untouched. Shipping metadata
+    // is additive and persisted immediately after the atomic order succeeds.
+    // The Phase 3/4 migration adds these columns for existing installations.
+    const { data: enrichedOrder, error: metadataError } = await supabaseAdmin
+      .from('orders')
+      .update({
+        region: input.region,
+        packageSize: input.packageSize
+      })
+      .eq('id', order.id)
+      .select()
+      .single();
+
+    if (metadataError) {
+      console.error('Failed to persist shipping preparation metadata:', metadataError);
+      // Do not report the whole order as failed after the atomic RPC has already
+      // consumed/linked a code. Returning the created order avoids duplicate
+      // submissions; shipping readiness will remain blocked until metadata is saved.
+      return { ...order, region: '', packageSize: '' } as Order;
+    }
+
+    return enrichedOrder as Order;
   },
 
   async updateOrder(id: number, updates: Partial<Order>): Promise<Order> {
