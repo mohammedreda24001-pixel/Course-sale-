@@ -14,7 +14,8 @@ import {
   X, 
   User as UserIcon, 
   ShieldCheck,
-  Loader2
+  Loader2,
+  Banknote
 } from 'lucide-react';
 
 interface User {
@@ -91,6 +92,12 @@ export default function DashboardLayout({
       href: '/dashboard/codes',
       icon: Database,
       roles: ['admin', 'agent'],
+    },
+    {
+      name: 'فواتير الوسيط',
+      href: '/dashboard/waseet-finance',
+      icon: Banknote,
+      roles: ['admin'],
     },
     {
       name: 'إدارة الوكلاء',

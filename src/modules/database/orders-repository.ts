@@ -1,45 +1,129 @@
-import { supabaseAdmin } from '@/lib/supabase/admin';
+import 'server-only';
 
-export interface Order {
-  id: number;
-  studentName: string;
-  phone1: string;
-  phone2?: string;
-  province: string;
-  address: string;
-  landmark: string;
-  totalPrice: number;
-  basePrice?: number;
-  deliveryFee?: number;
-  StudentVaultCode_ID: string;
-  StudentVaultCode_Serial: string;
-  createdById?: string;
-  createdByUsername?: string;
-  piecesCount?: number;
-  hasReturn?: string;
-  goodsType?: string;
-  returnDescription?: string;
-  receiptNumber?: string;
-  ShipmentTrackingCode?: string;
-  notes?: string;
-  courseTypeId?: number;
-  internalNotes?: string;
-  telegramUsername?: string;
-  statusId?: number;
-  region?: string;
-  packageSize?: string;
-  createdAt: string;
+import { supabaseAdmin } from '@/lib/supabase/admin';
+import type {
+  WaseetOrderApiRecord,
+  WaseetOrderInput,
+  WaseetOrderRecord,
+  WaseetSyncState,
+} from '@/modules/waseet/types';
+import { shipmentUpdateFromWaseet } from '@/modules/waseet/order-model';
+
+export type Order = WaseetOrderRecord;
+
+export interface OrderListOptions {
+  page?: number;
+  pageSize?: number;
+  search?: string;
+  cityId?: number;
+  regionId?: number;
+  syncState?: WaseetSyncState;
+  statusId?: string;
+  dateFrom?: string;
+  dateTo?: string;
+  includeArchived?: boolean;
+}
+
+function cleanSearch(value: string): string {
+  return value.replace(/[%_,()]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 100);
+}
+
+function asOrder(data: unknown): Order {
+  return data as Order;
 }
 
 export const ordersRepository = {
-  async list(): Promise<Order[]> {
+  async list(options: OrderListOptions = {}) {
+    const page = Math.max(1, Number(options.page) || 1);
+    const pageSize = Math.min(100, Math.max(1, Number(options.pageSize) || 25));
+    const from = (page - 1) * pageSize;
+    const to = from + pageSize - 1;
+
+    let query = supabaseAdmin
+      .from('orders')
+      .select('*', { count: 'exact' })
+      .order('createdAt', { ascending: false })
+      .range(from, to);
+
+    if (!options.includeArchived) query = query.neq('internal_order_state', 'archived');
+    if (options.cityId) query = query.eq('waseet_city_id', options.cityId);
+    if (options.regionId) query = query.eq('waseet_region_id', options.regionId);
+    if (options.syncState) query = query.eq('waseet_sync_state', options.syncState);
+    if (options.statusId) query = query.eq('waseet_status_id', options.statusId);
+    if (options.dateFrom) query = query.gte('createdAt', `${options.dateFrom}T00:00:00.000Z`);
+    if (options.dateTo) query = query.lte('createdAt', `${options.dateTo}T23:59:59.999Z`);
+
+    const search = cleanSearch(options.search || '');
+    if (search) {
+      query = query.or(
+        `studentName.ilike.%${search}%,phone1.ilike.%${search}%,phone2.ilike.%${search}%,receiptNumber.ilike.%${search}%,waseet_qr_id.ilike.%${search}%`,
+      );
+    }
+
+    const { data, error, count } = await query;
+    if (error) throw error;
+    return {
+      orders: (data || []).map(asOrder),
+      pagination: {
+        page,
+        pageSize,
+        total: count || 0,
+        totalPages: Math.max(1, Math.ceil((count || 0) / pageSize)),
+      },
+    };
+  },
+
+  async listLookup(ids: number[]): Promise<Array<Pick<
+    Order,
+    | 'id'
+    | 'studentName'
+    | 'phone1'
+    | 'phone2'
+    | 'receiptNumber'
+    | 'courseTypeId'
+    | 'StudentVaultCode_ID'
+    | 'StudentVaultCode_Serial'
+    | 'waseet_city_name'
+    | 'waseet_region_name'
+    | 'address_details'
+    | 'location_hint'
+    | 'collection_amount'
+    | 'waseet_qr_id'
+    | 'waseet_status_text'
+    | 'waseet_sync_state'
+    | 'merchant_notes'
+    | 'internal_notes'
+    | 'createdAt'
+  >>> {
+    const uniqueIds = [...new Set(ids.filter(id => Number.isSafeInteger(id) && id > 0))].slice(0, 1_000);
+    if (uniqueIds.length === 0) return [];
     const { data, error } = await supabaseAdmin
       .from('orders')
-      .select('*')
-      .order('createdAt', { ascending: false });
-
+      .select('id,studentName,phone1,phone2,receiptNumber,courseTypeId,StudentVaultCode_ID,StudentVaultCode_Serial,waseet_city_name,waseet_region_name,address_details,location_hint,collection_amount,waseet_qr_id,waseet_status_text,waseet_sync_state,merchant_notes,internal_notes,createdAt')
+      .in('id', uniqueIds);
     if (error) throw error;
-    return data || [];
+    return (data || []) as Array<Pick<
+      Order,
+      | 'id'
+      | 'studentName'
+      | 'phone1'
+      | 'phone2'
+      | 'receiptNumber'
+      | 'courseTypeId'
+      | 'StudentVaultCode_ID'
+      | 'StudentVaultCode_Serial'
+      | 'waseet_city_name'
+      | 'waseet_region_name'
+      | 'address_details'
+      | 'location_hint'
+      | 'collection_amount'
+      | 'waseet_qr_id'
+      | 'waseet_status_text'
+      | 'waseet_sync_state'
+      | 'merchant_notes'
+      | 'internal_notes'
+      | 'createdAt'
+    >>;
   },
 
   async getById(id: number): Promise<Order | null> {
@@ -47,10 +131,17 @@ export const ordersRepository = {
       .from('orders')
       .select('*')
       .eq('id', id)
-      .single();
+      .maybeSingle();
+    if (error) throw error;
+    return data ? asOrder(data) : null;
+  },
 
-    if (error || !data) return null;
-    return data;
+  async getByIds(ids: number[]): Promise<Order[]> {
+    const uniqueIds = [...new Set(ids.filter(id => Number.isSafeInteger(id) && id > 0))];
+    if (uniqueIds.length === 0) return [];
+    const { data, error } = await supabaseAdmin.from('orders').select('*').in('id', uniqueIds);
+    if (error) throw error;
+    return (data || []).map(asOrder);
   },
 
   async getByReceiptNumber(receiptNumber: string): Promise<Order | null> {
@@ -58,252 +149,282 @@ export const ordersRepository = {
       .from('orders')
       .select('*')
       .eq('receiptNumber', receiptNumber)
-      .single();
-
-    if (error || !data) return null;
-    return data;
+      .neq('internal_order_state', 'archived')
+      .maybeSingle();
+    if (error) throw error;
+    return data ? asOrder(data) : null;
   },
 
-  async create(orderData: any): Promise<Order> {
-    // Try atomic function first (Phase 2)
-    try {
-      const { data, error } = await supabaseAdmin.rpc('create_order_atomic', {
-        p_student_name: orderData.studentName,
-        p_phone1: orderData.phone1,
-        p_phone2: orderData.phone2 || '',
-        p_province: orderData.province,
-        p_address: orderData.address,
-        p_landmark: orderData.landmark || '',
-        p_created_by_id: orderData.createdById || '',
-        p_created_by_username: orderData.createdByUsername || '',
-        p_pieces_count: orderData.piecesCount || 1,
-        p_has_return: orderData.hasReturn || 'لا',
-        p_goods_type: orderData.goodsType || 'كورس تعليمي',
-        p_return_description: orderData.returnDescription || '',
-        p_receipt_number: orderData.receiptNumber?.trim() || null,
-        p_notes: orderData.notes || '',
-        p_manual_code: undefined,
-        p_manual_serial: undefined,
-        p_course_type_id: orderData.courseTypeId || 1,
-        p_internal_notes: orderData.internalNotes || '',
-        p_telegram_username: orderData.telegramUsername || '',
-        p_status_id: orderData.statusId || 1,
-        p_base_price: orderData.basePrice || 250,
-        p_delivery_fee: orderData.deliveryFee || 0
-      });
+  async create(
+    input: WaseetOrderInput,
+    resolved: {
+      city: { id: number; name: string };
+      region: { id: number; name: string };
+      packageSize: { id: number; name: string };
+    },
+    actor: { id?: string; username?: string },
+    payloadHash: string,
+  ): Promise<Order> {
+    const { data, error } = await supabaseAdmin.rpc('create_waseet_order_atomic', {
+      p_student_name: input.studentName,
+      p_phone1: input.phone1,
+      p_phone2: input.phone2 || '',
+      p_waseet_city_id: resolved.city.id,
+      p_waseet_city_name: resolved.city.name,
+      p_waseet_region_id: resolved.region.id,
+      p_waseet_region_name: resolved.region.name,
+      p_address_details: input.addressDetails,
+      p_location_hint: input.locationHint || '',
+      p_waseet_package_size_id: resolved.packageSize.id,
+      p_waseet_package_size_name: resolved.packageSize.name,
+      p_collection_amount: input.collectionAmount,
+      p_items_count: input.itemsCount,
+      p_replacement: input.replacement,
+      p_goods_type: input.goodsType,
+      p_merchant_notes: input.merchantNotes || '',
+      p_receipt_number: input.receiptNumber || null,
+      p_course_type_id: input.courseTypeId,
+      p_internal_notes: input.internalNotes || '',
+      p_telegram_username: input.telegramUsername || '',
+      p_created_by_id: actor.id || null,
+      p_created_by_username: actor.username || '',
+      p_payload_hash: payloadHash,
+    });
 
-      if (!error && data) {
-        const order = Array.isArray(data) ? data[0] : data;
-        if (order) return order as Order;
+    if (error) {
+      if (/create_waseet_order_atomic/i.test(error.message || '')) {
+        throw new Error('قاعدة البيانات غير محدثة. شغّل ملف Supabase-Waseet-Native-Full.sql كاملاً في SQL Editor.');
       }
-    } catch {
-      // Atomic function not available - use fallback
+      throw error;
     }
-
-    // Fallback: Simple insert without atomic code reservation
-    return this.createOrderFallback(orderData);
+    const row = Array.isArray(data) ? data[0] : data;
+    if (!row) throw new Error('لم تُرجع قاعدة البيانات الطلب الذي تم إنشاؤه.');
+    return asOrder(row);
   },
 
-  // Fallback method for when create_order_atomic RPC doesn't exist yet
-  private async createOrderFallback(orderData: any): Promise<Order> {
-    // Get next receipt number
-    let receiptNumber = orderData.receiptNumber?.trim();
-    if (!receiptNumber) {
-      receiptNumber = await this.getNextReceiptNumber();
-    }
-
-    // Get an available code from vault
-    const { data: codeData, error: codeError } = await supabaseAdmin
-      .from('codes')
-      .select('*')
-      .eq('status', 'available')
-      .eq('courseTypeId', orderData.courseTypeId || 1)
-      .limit(1);
-
-    if (codeError || !codeData || codeData.length === 0) {
-      throw new Error('لا توجد أكواد متاحة في المخزن. يرجى إضافة أكواد أولاً.');
-    }
-
-    const selectedCode = codeData[0];
-
-    // Mark code as used
-    const { error: updateCodeError } = await supabaseAdmin
-      .from('codes')
-      .update({ 
-        status: 'used',
-        orderId: 'pending-insert'
-      })
-      .eq('id', selectedCode.id);
-
-    if (updateCodeError) {
-      throw new Error('فشل حجز الكود. يرجى المحاولة مرة أخرى.');
-    }
-
-    // Create the order
-    const orderInsert = {
-      studentName: orderData.studentName,
-      phone1: orderData.phone1,
-      phone2: orderData.phone2 || '',
-      province: orderData.province,
-      address: orderData.address,
-      landmark: orderData.landmark || '',
-      totalPrice: orderData.totalPrice || (orderData.basePrice || 250) + (orderData.deliveryFee || 0),
-      basePrice: orderData.basePrice || 250,
-      deliveryFee: orderData.deliveryFee || 0,
-      StudentVaultCode_ID: selectedCode.codeValue,
-      StudentVaultCode_Serial: selectedCode.serialNumber || '',
-      createdById: orderData.createdById,
-      createdByUsername: orderData.createdByUsername,
-      piecesCount: orderData.piecesCount || 1,
-      hasReturn: orderData.hasReturn || 'لا',
-      goodsType: orderData.goodsType || 'كورس تعليمي',
-      returnDescription: orderData.returnDescription || '',
-      receiptNumber,
-      notes: orderData.notes || '',
-      courseTypeId: orderData.courseTypeId || 1,
-      internalNotes: orderData.internalNotes || '',
-      telegramUsername: orderData.telegramUsername || '',
-      statusId: orderData.statusId || 1,
-      region: orderData.region || '',
-      packageSize: orderData.packageSize || ''
-    };
-
-    const { data: order, error: orderError } = await supabaseAdmin
-      .from('orders')
-      .insert(orderInsert)
-      .select()
-      .single();
-
-    if (orderError) {
-      // Rollback: release the code
-      await supabaseAdmin
-        .from('codes')
-        .update({ status: 'available', orderId: null })
-        .eq('id', selectedCode.id);
-      throw new Error(`فشل إنشاء الطلب: ${orderError.message}`);
-    }
-
-    // Update code with actual order ID
-    await supabaseAdmin
-      .from('codes')
-      .update({ orderId: order.id })
-      .eq('id', selectedCode.id);
-
-    return order as Order;
-  },
-
-  async update(id: number, updates: Partial<Order>): Promise<Order> {
+  async updateLocal(id: number, updates: Partial<Order>): Promise<Order> {
+    const safeUpdates = { ...updates, updated_at: new Date().toISOString() };
+    delete (safeUpdates as Partial<Order>).id;
+    delete (safeUpdates as Partial<Order>).waseet_qr_link;
+    delete (safeUpdates as Partial<Order>).waseet_raw;
     const { data, error } = await supabaseAdmin
       .from('orders')
-      .update(updates)
+      .update(safeUpdates)
       .eq('id', id)
-      .select()
+      .select('*')
       .single();
-
     if (error) throw error;
-    return data;
+    return asOrder(data);
   },
 
-  async delete(id: number): Promise<boolean> {
+  async archiveDraft(id: number, actor?: { id?: string; username?: string }): Promise<void> {
+    const { error } = await supabaseAdmin.rpc('archive_waseet_order', {
+      p_order_id: id,
+      p_actor_id: actor?.id || null,
+      p_actor_username: actor?.username || '',
+    });
+    if (error) throw error;
+  },
+
+  async claimDispatch(id: number, payloadHash: string): Promise<Order> {
+    const { data, error } = await supabaseAdmin.rpc('claim_waseet_dispatch', {
+      p_order_id: id,
+      p_payload_hash: payloadHash,
+    });
+    if (error) throw error;
+    const row = Array.isArray(data) ? data[0] : data;
+    if (!row) throw new Error('تعذر حجز محاولة الإرسال.');
+    return asOrder(row);
+  },
+
+  async markDispatchSuccess(id: number, record: WaseetOrderApiRecord): Promise<Order> {
+    const now = new Date().toISOString();
+    const update = {
+      ...shipmentUpdateFromWaseet(record),
+      waseet_sync_state: 'synced',
+      waseet_last_error: '',
+      waseet_dispatched_at: now,
+      waseet_last_synced_at: now,
+      updated_at: now,
+    };
+    const { data, error } = await supabaseAdmin
+      .from('orders')
+      .update(update)
+      .eq('id', id)
+      .select('*')
+      .single();
+    if (error) throw error;
+    await this.appendStatusHistory(id, null, update.waseet_status_id, update.waseet_status_text, record);
+    return asOrder(data);
+  },
+
+  async markDispatchFailure(id: number, message: string, needsVerification: boolean): Promise<void> {
     const { error } = await supabaseAdmin
       .from('orders')
-      .delete()
+      .update({
+        waseet_sync_state: needsVerification ? 'needs_verification' : 'failed',
+        waseet_last_error: message.slice(0, 2_000),
+        updated_at: new Date().toISOString(),
+      })
       .eq('id', id);
-
     if (error) throw error;
-    return true;
   },
 
-  // Alias for delete
-  async remove(id: number): Promise<boolean> {
-    return this.delete(id);
-  },
-
-  // Alias for updateOrderStatus
-  async updateStatus(id: number, statusId: number): Promise<Order> {
+  async applyRemoteEdit(id: number, updates: Partial<Order>, record?: WaseetOrderApiRecord): Promise<Order> {
+    const now = new Date().toISOString();
+    const finalUpdates: Partial<Order> & Record<string, unknown> = {
+      ...updates,
+      waseet_last_error: '',
+      waseet_last_synced_at: now,
+      updated_at: now,
+    };
+    if (record) Object.assign(finalUpdates, shipmentUpdateFromWaseet(record));
     const { data, error } = await supabaseAdmin
       .from('orders')
-      .update({ statusId })
+      .update(finalUpdates)
       .eq('id', id)
-      .select()
+      .select('*')
       .single();
-
     if (error) throw error;
-    return data;
+    return asOrder(data);
+  },
+
+  async applySyncedRecord(order: Order, record: WaseetOrderApiRecord): Promise<Order> {
+    const now = new Date().toISOString();
+    const previousStatusId = order.waseet_status_id || null;
+    const update = {
+      ...shipmentUpdateFromWaseet(record),
+      waseet_sync_state: 'synced',
+      waseet_last_error: '',
+      waseet_last_synced_at: now,
+      updated_at: now,
+    };
+    const { data, error } = await supabaseAdmin
+      .from('orders')
+      .update(update)
+      .eq('id', order.id)
+      .select('*')
+      .single();
+    if (error) throw error;
+
+    if (previousStatusId !== update.waseet_status_id) {
+      await this.appendStatusHistory(
+        order.id,
+        previousStatusId,
+        update.waseet_status_id,
+        update.waseet_status_text,
+        record,
+      );
+    }
+    return asOrder(data);
+  },
+
+  async markSyncFailure(id: number, message: string): Promise<void> {
+    const { error } = await supabaseAdmin
+      .from('orders')
+      .update({
+        waseet_sync_state: 'failed',
+        waseet_last_error: message.slice(0, 2_000),
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', id);
+    if (error) throw error;
+  },
+
+  async appendStatusHistory(
+    orderId: number,
+    previousStatusId: string | null,
+    nextStatusId: string | null,
+    nextStatusText: string | null,
+    raw: Record<string, unknown>,
+  ): Promise<void> {
+    const { error } = await supabaseAdmin.from('waseet_status_history').insert({
+      order_id: orderId,
+      previous_status_id: previousStatusId,
+      status_id: nextStatusId,
+      status_text: nextStatusText,
+      raw_payload: raw,
+    });
+    if (error) console.error('Waseet status history log failed:', error.message);
+  },
+
+  async audit(input: {
+    orderId?: number;
+    action: string;
+    actorId?: string;
+    actorUsername?: string;
+    success: boolean;
+    message?: string;
+    details?: Record<string, unknown>;
+    requestId?: string;
+  }): Promise<void> {
+    const { error } = await supabaseAdmin.from('waseet_audit_log').insert({
+      order_id: input.orderId || null,
+      action: input.action,
+      actor_id: input.actorId || null,
+      actor_username: input.actorUsername || '',
+      success: input.success,
+      message: input.message || '',
+      details: input.details || {},
+      request_id: input.requestId || null,
+    });
+    if (error) console.error('Waseet audit log failed:', error.message);
+  },
+
+  async apiLog(input: {
+    orderId?: number;
+    endpoint: string;
+    method: string;
+    success: boolean;
+    durationMs: number;
+    errorCode?: string;
+    errorMessage?: string;
+    requestId?: string;
+  }): Promise<void> {
+    const { error } = await supabaseAdmin.from('waseet_api_log').insert({
+      order_id: input.orderId || null,
+      endpoint: input.endpoint,
+      method: input.method,
+      success: input.success,
+      duration_ms: input.durationMs,
+      error_code: input.errorCode || null,
+      error_message: input.errorMessage || '',
+      request_id: input.requestId || null,
+    });
+    if (error) console.error('Waseet API log failed:', error.message);
   },
 
   async getNextReceiptNumber(): Promise<string> {
-    try {
-      // Try using the preview function first
-      const { data, error } = await supabaseAdmin.rpc('preview_next_receipt_number');
-      
-      if (!error && data) {
-        return String(data);
-      }
-    } catch {
-      // Fallback to manual calculation
-    }
-
-    // Fallback: get max receipt number
-    const { data, error } = await supabaseAdmin
-      .from('orders')
-      .select('receiptNumber')
-      .not('receiptNumber', 'is', null)
-      .neq('receiptNumber', '')
-      .order('receiptNumber', { ascending: false })
-      .limit(1);
-
-    if (error || !data || data.length === 0) {
-      return '1001';
-    }
-
-    const lastNumber = parseInt(data[0].receiptNumber);
-    return String(lastNumber + 1);
+    const { data, error } = await supabaseAdmin.rpc('preview_next_receipt_number');
+    if (error) throw error;
+    return String(data || '1001');
   },
 
   async getByDateRange(startDate: string, endDate: string): Promise<Order[]> {
     const { data, error } = await supabaseAdmin
       .from('orders')
       .select('*')
-      .gte('createdAt', startDate)
-      .lte('createdAt', endDate + 'T23:59:59.999Z')
+      .gte('createdAt', `${startDate}T00:00:00.000Z`)
+      .lte('createdAt', `${endDate}T23:59:59.999Z`)
+      .neq('internal_order_state', 'archived')
       .order('createdAt', { ascending: false });
-
     if (error) throw error;
-    return data || [];
+    return (data || []).map(asOrder);
   },
 
-  async getStatistics(): Promise<{
-    totalOrders: number;
-    totalRevenue: number;
-    pendingOrders: number;
-    deliveredOrders: number;
-  }> {
-    const { count: totalOrders } = await supabaseAdmin
-      .from('orders')
-      .select('*', { count: 'exact', head: true });
-
-    const { data: revenueData } = await supabaseAdmin
-      .from('orders')
-      .select('totalPrice');
-
-    const totalRevenue = revenueData?.reduce((sum, order) => sum + Number(order.totalPrice), 0) || 0;
-
-    const { count: pendingOrders } = await supabaseAdmin
-      .from('orders')
-      .select('*', { count: 'exact', head: true })
-      .in('statusId', [1, 3]);
-
-    const { count: deliveredOrders } = await supabaseAdmin
-      .from('orders')
-      .select('*', { count: 'exact', head: true })
-      .eq('statusId', 2);
-
+  async statistics() {
+    const [{ count: total }, { count: sent }, { count: manualReview }, { data: amounts }] = await Promise.all([
+      supabaseAdmin.from('orders').select('*', { count: 'exact', head: true }).neq('internal_order_state', 'archived'),
+      supabaseAdmin.from('orders').select('*', { count: 'exact', head: true }).not('waseet_qr_id', 'is', null).neq('internal_order_state', 'archived'),
+      supabaseAdmin.from('orders').select('*', { count: 'exact', head: true }).eq('waseet_sync_state', 'manual_review').neq('internal_order_state', 'archived'),
+      supabaseAdmin.from('orders').select('collection_amount,waseet_merchant_price').neq('internal_order_state', 'archived'),
+    ]);
     return {
-      totalOrders: totalOrders || 0,
-      totalRevenue,
-      pendingOrders: pendingOrders || 0,
-      deliveredOrders: deliveredOrders || 0
+      totalOrders: total || 0,
+      sentOrders: sent || 0,
+      manualReviewOrders: manualReview || 0,
+      collectionTotal: (amounts || []).reduce((sum: number, row: { collection_amount?: unknown }) => sum + Number(row.collection_amount || 0), 0),
+      merchantNetTotal: (amounts || []).reduce((sum: number, row: { waseet_merchant_price?: unknown }) => sum + Number(row.waseet_merchant_price || 0), 0),
     };
-  }
+  },
 };

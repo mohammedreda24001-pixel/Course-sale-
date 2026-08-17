@@ -34,14 +34,35 @@ interface User {
   role: 'admin' | 'agent';
 }
 
+interface OrderLookup {
+  id: number;
+  studentName: string;
+  phone1: string;
+  phone2?: string | null;
+  receiptNumber?: string | null;
+  courseTypeId?: number | null;
+  StudentVaultCode_ID: string;
+  StudentVaultCode_Serial: string;
+  waseet_city_name?: string | null;
+  waseet_region_name?: string | null;
+  address_details: string;
+  location_hint: string;
+  collection_amount: number;
+  waseet_qr_id?: string | null;
+  waseet_status_text?: string | null;
+  waseet_sync_state: string;
+  merchant_notes: string;
+  internal_notes: string;
+  createdAt: string;
+}
+
 const ITEMS_PER_PAGE = 15;
 
 export default function CodeVaultPage() {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [codes, setCodes] = useState<Code[]>([]);
   const [courseTypes, setCourseTypes] = useState<{ id: number; name: string }[]>([]);
-  const [orders, setOrders] = useState<any[]>([]);
-  const [statuses, setStatuses] = useState<{ id: number; name: string }[]>([]);
+  const [orders, setOrders] = useState<OrderLookup[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   
@@ -74,7 +95,7 @@ export default function CodeVaultPage() {
   const [currentPage, setCurrentPage] = useState(1);
 
   // Modal state
-  const [selectedOrder, setSelectedOrder] = useState<any | null>(null);
+  const [selectedOrder, setSelectedOrder] = useState<OrderLookup | null>(null);
 
   // PIN Protection States
   const [pinInput, setPinInput] = useState('');
@@ -94,12 +115,10 @@ export default function CodeVaultPage() {
 
   async function loadData() {
     try {
-      const [meRes, codesRes, courseTypesRes, ordersRes, statusesRes] = await Promise.all([
+      const [meRes, codesRes, courseTypesRes] = await Promise.all([
         fetch('/api/auth/me'),
         fetch('/api/codes'),
-        fetch('/api/course-types'),
-        fetch('/api/orders'),
-        fetch('/api/statuses')
+        fetch('/api/course-types')
       ]);
       
       if (meRes.ok) {
@@ -107,9 +126,10 @@ export default function CodeVaultPage() {
         setCurrentUser(meData.user);
       }
       
+      let loadedCodes: Code[] = [];
       if (codesRes.ok) {
-        const codesData = await codesRes.json();
-        setCodes(codesData);
+        loadedCodes = await codesRes.json() as Code[];
+        setCodes(loadedCodes);
       } else {
         setError('فشل في جلب كودات الدورات');
       }
@@ -123,14 +143,12 @@ export default function CodeVaultPage() {
         }
       }
 
-      if (ordersRes.ok) {
-        const oData = await ordersRes.json();
-        setOrders(oData);
-      }
-
-      if (statusesRes.ok) {
-        const sData = await statusesRes.json();
-        setStatuses(sData);
+      const orderIds = [...new Set(loadedCodes.map(code => code.orderId).filter((id): id is number => Boolean(id)))];
+      if (orderIds.length > 0) {
+        const ordersRes = await fetch(`/api/orders?lookupIds=${encodeURIComponent(orderIds.join(','))}`);
+        if (ordersRes.ok) setOrders(await ordersRes.json() as OrderLookup[]);
+      } else {
+        setOrders([]);
       }
     } catch (err) {
       setError('حدث خطأ في الاتصال بالخادم');
@@ -751,7 +769,7 @@ export default function CodeVaultPage() {
               ) : (
                 paginatedCodes.map((code) => {
                   const isEditing = editingCodeId === code.id;
-                  const courseName = courseTypes.find(ct => ct.id === code.courseTypeId)?.name || 'دورة الأحياء';
+                  const courseName = courseTypes.find(ct => ct.id === code.courseTypeId)?.name || 'غير محدد';
                   const matchedOrder = orders.find(o => o.id === code.orderId);
                   const receiptNum = matchedOrder ? matchedOrder.receiptNumber : code.orderId;
 
@@ -769,7 +787,7 @@ export default function CodeVaultPage() {
                         ) : (
                           <div className="flex items-center gap-2">
                             <span className="font-mono font-bold text-zinc-200 select-all">{code.codeValue}</span>
-                            {code.status === 'used' && matchedOrder && (statuses.find(s => s.id === matchedOrder.statusId)?.name === 'راجع' || matchedOrder.statusId === 4) && (
+                            {code.status === 'used' && matchedOrder && /راجع|مرتجع|ارجاع|إرجاع/.test(matchedOrder.waseet_status_text || '') && (
                               <span className="px-1.5 py-0.5 rounded bg-red-950/20 text-red-400 border border-red-800/30 text-[9px] font-bold">
                                 (راجع)
                               </span>
@@ -951,7 +969,7 @@ export default function CodeVaultPage() {
               <div className="p-3 bg-zinc-950/40 border border-zinc-800/60 rounded">
                 <span className="text-[10px] text-zinc-500 block mb-1">نوع الدورة</span>
                 <span className="text-swiss-lavender font-bold text-sm">
-                  {courseTypes.find(c => c.id === selectedOrder.courseTypeId)?.name || 'دورة الأحياء'}
+                  {courseTypes.find(c => c.id === selectedOrder.courseTypeId)?.name || 'غير محدد'}
                 </span>
               </div>
               <div className="p-3 bg-zinc-950/40 border border-zinc-800/60 rounded">
@@ -963,21 +981,26 @@ export default function CodeVaultPage() {
                 <span className="text-zinc-200 font-mono select-all text-sm">{selectedOrder.phone2 || 'لا يوجد'}</span>
               </div>
               <div className="p-3 bg-zinc-950/40 border border-zinc-800/60 rounded">
-                <span className="text-[10px] text-zinc-500 block mb-1">المحافظة</span>
-                <span className="text-zinc-200 text-sm font-bold">{selectedOrder.province}</span>
+                <span className="text-[10px] text-zinc-500 block mb-1">المحافظة / المنطقة</span>
+                <span className="text-zinc-200 text-sm font-bold">{selectedOrder.waseet_city_name || 'تحتاج تحديث'} — {selectedOrder.waseet_region_name || 'غير محددة'}</span>
               </div>
               <div className="p-3 bg-zinc-950/40 border border-zinc-800/60 rounded">
-                <span className="text-[10px] text-zinc-500 block mb-1">المبلغ الإجمالي</span>
-                <span className="text-emerald-400 font-mono text-sm font-bold">{(selectedOrder.totalPrice * 1000).toLocaleString()} د.ع</span>
+                <span className="text-[10px] text-zinc-500 block mb-1">المبلغ المطلوب تحصيله</span>
+                <span className="text-emerald-400 font-mono text-sm font-bold">{Number(selectedOrder.collection_amount || 0).toLocaleString('ar-IQ')} د.ع</span>
+              </div>
+              <div className="col-span-2 p-3 bg-zinc-950/40 border border-zinc-800/60 rounded">
+                <span className="text-[10px] text-zinc-500 block mb-1">حالة شحنة الوسيط</span>
+                <span className="text-swiss-lavender font-bold">{selectedOrder.waseet_status_text || (selectedOrder.waseet_qr_id ? 'بانتظار المزامنة' : 'غير مرسل')}</span>
+                {selectedOrder.waseet_qr_id && <span className="mr-2 font-mono text-zinc-500">QR #{selectedOrder.waseet_qr_id}</span>}
               </div>
               <div className="col-span-2 p-3 bg-zinc-950/40 border border-zinc-800/60 rounded">
                 <span className="text-[10px] text-zinc-500 block mb-1">العنوان بالتفصيل</span>
-                <span className="text-zinc-300">{selectedOrder.address}</span>
+                <span className="text-zinc-300">{selectedOrder.address_details || 'غير مكتمل'}</span>
               </div>
-              {selectedOrder.landmark && (
+              {selectedOrder.location_hint && (
                 <div className="col-span-2 p-3 bg-zinc-950/40 border border-zinc-800/60 rounded">
                   <span className="text-[10px] text-zinc-500 block mb-1">أقرب نقطة دالة</span>
-                  <span className="text-zinc-300">{selectedOrder.landmark}</span>
+                  <span className="text-zinc-300">{selectedOrder.location_hint}</span>
                 </div>
               )}
               <div className="p-3 bg-zinc-950/40 border border-zinc-800/60 rounded">
@@ -988,16 +1011,16 @@ export default function CodeVaultPage() {
                 <span className="text-[10px] text-zinc-500 block mb-1">الرقم التسلسلي (Serial)</span>
                 <span className="text-zinc-200 font-mono font-bold text-sm select-all">{selectedOrder.StudentVaultCode_Serial}</span>
               </div>
-              {selectedOrder.notes && (
+              {selectedOrder.merchant_notes && (
                 <div className="col-span-2 p-3 bg-zinc-950/40 border border-zinc-800/60 rounded">
-                  <span className="text-[10px] text-zinc-500 block mb-1">ملاحظة الطلب العامة</span>
-                  <span className="text-zinc-300 whitespace-pre-wrap">{selectedOrder.notes}</span>
+                  <span className="text-[10px] text-zinc-500 block mb-1">ملاحظات التاجر للمندوب</span>
+                  <span className="text-zinc-300 whitespace-pre-wrap">{selectedOrder.merchant_notes}</span>
                 </div>
               )}
-              {selectedOrder.internalNotes && (
+              {selectedOrder.internal_notes && (
                 <div className="col-span-2 p-3 bg-swiss-lavender/5 border border-swiss-lavender/20 rounded">
                   <span className="text-[10px] text-swiss-lavender block mb-1">ملاحظات داخلية</span>
-                  <span className="text-zinc-200 whitespace-pre-wrap">{selectedOrder.internalNotes}</span>
+                  <span className="text-zinc-200 whitespace-pre-wrap">{selectedOrder.internal_notes}</span>
                 </div>
               )}
             </div>
