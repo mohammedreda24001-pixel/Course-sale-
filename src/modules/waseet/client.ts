@@ -126,6 +126,18 @@ async function parseEnvelope<T>(
   try {
     payload = await response.json();
   } catch {
+    const blockedByUpstreamProtection =
+      response.status === 403 && /cloudflare/i.test(response.headers.get('server') || '');
+    if (blockedByUpstreamProtection) {
+      throw new WaseetApiError(
+        'رفضت حماية خادم الوسيط اتصال خادم النشر (HTTP 403). يلزم رفع الحظر عن منطقة خادم النشر لدى الوسيط.',
+        {
+          code: 'WASEET_UPSTREAM_BLOCKED',
+          httpStatus: response.status,
+          uncertain: uncertainOnUnreadableResponse,
+        },
+      );
+    }
     throw new WaseetApiError('أعاد الوسيط استجابة غير قابلة للقراءة.', {
       httpStatus: response.status,
       uncertain: uncertainOnUnreadableResponse,
