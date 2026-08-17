@@ -1,11 +1,13 @@
 import 'server-only';
 
+import { supabaseAdmin } from '@/lib/supabase/admin';
 import type {
   WaseetApiEnvelope,
   WaseetCityApi,
   WaseetCreateOrderPayload,
   WaseetEditOrderPayload,
   WaseetInvoiceApiRecord,
+  WaseetInvoiceOrdersApiResponse,
   WaseetOrderApiRecord,
   WaseetPackageSizeApi,
   WaseetRegionApi,
@@ -21,8 +23,6 @@ type TokenCache = { token: string; expiresAt: number };
 type WaseetGlobal = typeof globalThis & {
   __courseSaleWaseetToken?: TokenCache;
   __courseSaleWaseetLoginPromise?: Promise<string>;
-  __courseSaleWaseetRateQueue?: Promise<void>;
-  __courseSaleWaseetLastRequestAt?: number;
 };
 
 const globalCache = globalThis as WaseetGlobal;
@@ -70,15 +70,21 @@ function isLikelyAuthFailure(envelope: WaseetApiEnvelope<unknown>): boolean {
 }
 
 async function paceRequest(minimumIntervalMs: number): Promise<void> {
-  const previousQueue = globalCache.__courseSaleWaseetRateQueue || Promise.resolve();
-  const currentTurn = previousQueue.catch(() => undefined).then(async () => {
-    const lastRequestAt = globalCache.__courseSaleWaseetLastRequestAt || 0;
-    const delay = Math.max(0, minimumIntervalMs - (Date.now() - lastRequestAt));
-    if (delay > 0) await new Promise(resolve => setTimeout(resolve, delay));
-    globalCache.__courseSaleWaseetLastRequestAt = Date.now();
+  const { data, error } = await supabaseAdmin.rpc('reserve_waseet_api_slot', {
+    p_min_interval_ms: minimumIntervalMs,
   });
-  globalCache.__courseSaleWaseetRateQueue = currentTurn.catch(() => undefined);
-  await currentTurn;
+  if (error) {
+    throw new WaseetApiError(
+      'محدد سرعة Waseet المركزي غير متاح. طبّق ترحيل Supabase-Waseet-V2.3-Rate-Limit.sql قبل الاتصال بالوسيط.',
+      { code: error.code },
+    );
+  }
+
+  const delay = Number(data);
+  if (!Number.isFinite(delay) || delay < 0 || delay > 60_000) {
+    throw new WaseetApiError('أعادت قاعدة البيانات حجز سرعة غير صالح لاتصال Waseet.');
+  }
+  if (delay > 0) await new Promise(resolve => setTimeout(resolve, delay));
 }
 
 async function fetchWithTimeout(
@@ -243,9 +249,10 @@ async function request<T>(
 }
 
 export const waseetClient = {
-  async healthCheck(): Promise<{ authenticated: true }> {
+  async healthCheck(): Promise<{ authenticated: true; merchantTokenVerified: true }> {
     await login(true);
-    return { authenticated: true };
+    await request<WaseetInvoiceApiRecord[]>('get_merchant_invoices');
+    return { authenticated: true, merchantTokenVerified: true };
   },
 
   getCities(): Promise<WaseetCityApi[]> {
@@ -307,8 +314,10 @@ export const waseetClient = {
     return request<WaseetInvoiceApiRecord[]>('get_merchant_invoices');
   },
 
-  getInvoiceOrders(invoiceId: string | number): Promise<unknown> {
-    return request<unknown>('get_merchant_invoice_orders', { query: { invoice_id: invoiceId } });
+  getInvoiceOrders(invoiceId: string | number): Promise<WaseetInvoiceOrdersApiResponse> {
+    return request<WaseetInvoiceOrdersApiResponse>('get_merchant_invoice_orders', {
+      query: { invoice_id: invoiceId },
+    });
   },
 
   async receiveInvoice(invoiceId: string | number): Promise<void> {

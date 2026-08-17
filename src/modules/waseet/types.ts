@@ -84,6 +84,15 @@ export interface WaseetOrderApiRecord {
   cash_fee?: string | number;
   delivery_price?: string | number;
   merchant_invoice_id?: string | number;
+  merchant_mobile?: string;
+  merchant_id?: string | number;
+  current_city?: string | number;
+  merchant_city?: string | number;
+  merchant_created_at?: string;
+  pickup_id?: string | number;
+  pickup_created_at?: string;
+  has_merchant_fin_record?: 0 | 1 | '0' | '1';
+  deliver_confirmed_fin?: 0 | 1 | '0' | '1';
   [key: string]: unknown;
 }
 
@@ -96,6 +105,11 @@ export interface WaseetInvoiceApiRecord {
   merchant_id?: string | number;
   updated_at?: string;
   [key: string]: unknown;
+}
+
+export interface WaseetInvoiceOrdersApiResponse {
+  invoice: WaseetInvoiceApiRecord[];
+  orders: WaseetOrderApiRecord[];
 }
 
 export interface WaseetMetadataCity {

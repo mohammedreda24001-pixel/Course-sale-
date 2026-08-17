@@ -66,7 +66,7 @@ export default function WaseetFinancePage() {
       const response = await fetch('/api/waseet/invoices', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ invoiceId: invoice.id }),
+        body: JSON.stringify({ invoiceId: invoice.id, confirmReceipt: true }),
       });
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error || 'تعذر تأكيد الاستلام.');

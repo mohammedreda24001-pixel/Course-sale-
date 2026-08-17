@@ -19,10 +19,6 @@ function numericId(value: string | number, label: string): number {
   return id;
 }
 
-async function pause(ms: number) {
-  await new Promise(resolve => setTimeout(resolve, ms));
-}
-
 export const waseetMetadataRepository = {
   async listCities(): Promise<WaseetMetadataCity[]> {
     const { data, error } = await supabaseAdmin
@@ -140,22 +136,16 @@ export const waseetMetadataRepository = {
       const cities = citiesApi.map(city => ({
         id: numericId(city.id, 'المحافظة'),
         name: String(city.city_name || '').trim(),
-        active: true,
-        fetched_at: fetchedAt,
       })).filter(city => city.name);
 
       const packageSizes = packageSizesApi.map(size => ({
         id: numericId(size.id, 'حجم الطرد'),
         name: String(size.size || '').trim(),
-        active: true,
-        fetched_at: fetchedAt,
       })).filter(size => size.name);
 
       const statuses = statusesApi.map(status => ({
         id: status.id === undefined || status.id === null ? '' : String(status.id).trim(),
         name: String(status.status || '').trim(),
-        active: true,
-        fetched_at: fetchedAt,
       })).filter(status => status.id && status.name);
 
       if (cities.length === 0) throw new Error('لم يُرجع الوسيط أي محافظة صالحة. لم تتغير القوائم المحلية.');
@@ -168,8 +158,6 @@ export const waseetMetadataRepository = {
         id: number;
         city_id: number;
         name: string;
-        active: boolean;
-        fetched_at: string;
       }> = [];
 
       for (let index = 0; index < cities.length; index += 1) {
@@ -182,55 +170,29 @@ export const waseetMetadataRepository = {
             id: numericId(region.id, 'المنطقة'),
             city_id: city.id,
             name,
-            active: true,
-            fetched_at: fetchedAt,
           });
         }
-        // The account-wide limit is shared by all endpoints; keep manual refreshes
-        // intentionally conservative instead of bursting one request per city.
-        if (index < cities.length - 1) await pause(1_050);
       }
 
       if (allRegions.length === 0) {
         throw new Error('لم يُرجع الوسيط أي منطقة صالحة. لم تتغير القوائم المحلية.');
       }
 
-      const baseUpserts = await Promise.all([
-        supabaseAdmin.from('waseet_cities').upsert(cities, { onConflict: 'id' }),
-        supabaseAdmin.from('waseet_package_sizes').upsert(packageSizes, { onConflict: 'id' }),
-        supabaseAdmin.from('waseet_status_catalog').upsert(statuses, { onConflict: 'id' }),
-      ]);
-      const baseError = baseUpserts.find(result => result.error)?.error;
-      if (baseError) throw baseError;
-
-      for (let index = 0; index < allRegions.length; index += 500) {
-        const { error } = await supabaseAdmin
-          .from('waseet_regions')
-          .upsert(allRegions.slice(index, index + 500), { onConflict: 'id' });
-        if (error) throw error;
-      }
-
-      // Every row in the current snapshot receives the same fetched_at value.
-      // Mark older rows inactive by timestamp instead of constructing a very
-      // large NOT IN URL that can break when the region catalog grows.
-      const deactivateResults = await Promise.all([
-        supabaseAdmin.from('waseet_cities').update({ active: false }).lt('fetched_at', fetchedAt),
-        supabaseAdmin.from('waseet_regions').update({ active: false }).lt('fetched_at', fetchedAt),
-        supabaseAdmin.from('waseet_package_sizes').update({ active: false }).lt('fetched_at', fetchedAt),
-        supabaseAdmin.from('waseet_status_catalog').update({ active: false }).lt('fetched_at', fetchedAt),
-      ]);
-      const deactivateError = deactivateResults.find(result => result.error)?.error;
-      if (deactivateError) throw deactivateError;
-
-      const { error: runError } = await supabaseAdmin.from('waseet_metadata_runs').insert({
-        fetched_at: fetchedAt,
-        cities_count: cities.length,
-        regions_count: allRegions.length,
-        package_sizes_count: packageSizes.length,
-        statuses_count: statuses.length,
-        success: true,
+      const { error: snapshotError } = await supabaseAdmin.rpc('replace_waseet_metadata_snapshot', {
+        p_cities: cities,
+        p_regions: allRegions,
+        p_package_sizes: packageSizes,
+        p_statuses: statuses,
+        p_fetched_at: fetchedAt,
       });
-      if (runError) console.error('Waseet metadata run log failed:', runError.message);
+      if (snapshotError) {
+        if (/replace_waseet_metadata_snapshot/i.test(snapshotError.message || '')) {
+          throw new Error(
+            'قاعدة البيانات غير محدثة. طبّق Supabase-Waseet-V2.3-Rate-Limit.sql قبل مزامنة القوائم.',
+          );
+        }
+        throw snapshotError;
+      }
 
       return this.getAll();
     } catch (error) {
