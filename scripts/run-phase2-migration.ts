@@ -2,13 +2,7 @@
  * Run Phase 2 Migration on Supabase
  */
 
-import { createClient } from '@supabase/supabase-js';
 import fs from 'fs';
-
-const SUPABASE_URL = 'https://aypfkugcwxvxjmbxjfkt.supabase.co';
-const SUPABASE_SERVICE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImF5cGZrdWdjd3h2eGptYnhqZmt0Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc4MTQzMjA2OSwiZXhwIjoyMDk3MDA4MDY5fQ._xSGxe8YJJjyqyrM4ZXjb9BtGyu3lesVgC0tIFPWUUE';
-
-const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
 
 async function runMigration() {
   console.log('🚀 Running Phase 2 Migration...');

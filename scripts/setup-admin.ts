@@ -6,8 +6,16 @@
 import { createClient } from '@supabase/supabase-js';
 import { hashPassword } from '../src/lib/auth';
 
-const SUPABASE_URL = 'https://aypfkugcwxvxjmbxjfkt.supabase.co';
-const SUPABASE_SERVICE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImF5cGZrdWdjd3h2eGptYnhqZmt0Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc4MTQzMjA2OSwiZXhwIjoyMDk3MDA4MDY5fQ._xSGxe8YJJjyqyrM4ZXjb9BtGyu3lesVgC0tIFPWUUE';
+function requiredEnv(name: string): string {
+  const value = process.env[name]?.trim();
+  if (!value) throw new Error(`${name} is required.`);
+  return value;
+}
+
+const SUPABASE_URL = requiredEnv('NEXT_PUBLIC_SUPABASE_URL');
+const SUPABASE_SERVICE_KEY = requiredEnv('SUPABASE_SERVICE_ROLE_KEY');
+const ADMIN_USERNAME = process.env.ADMIN_USERNAME?.trim() || 'admin';
+const ADMIN_PASSWORD = requiredEnv('ADMIN_PASSWORD');
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
 
@@ -15,8 +23,8 @@ async function setupAdmin() {
   console.log('🔧 Setting up Admin user...');
 
   const adminId = '00000000-0000-0000-0000-000000000001';
-  const username = 'admin';
-  const password = 'admin123'; // Default password - CHANGE IN PRODUCTION!
+  const username = ADMIN_USERNAME;
+  const password = ADMIN_PASSWORD;
   
   // Hash the password
   const passwordHash = await hashPassword(password);
@@ -67,7 +75,6 @@ async function setupAdmin() {
     console.log('🎉 ADMIN SETUP COMPLETE!');
     console.log('='.repeat(50));
     console.log(`👤 Username: ${verifyUser?.username}`);
-    console.log(`🔑 Password: ${password}`);
     console.log(`🎭 Role: ${verifyUser?.role}`);
     console.log(`🆔 ID: ${verifyUser?.id}`);
     console.log('='.repeat(50));
